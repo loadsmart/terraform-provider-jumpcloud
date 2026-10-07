@@ -44,7 +44,7 @@ provider_installation {
 
 ## Releasing
 
-Releases are continuous and follow the same flow as `loadsmart/terraform-modules`. On every push to `main`, [release-please](https://github.com/googleapis/release-please) opens a release PR from the conventional commits since the last release, and the Rollbot app merges it right away:
+Releases are continuous. On every push to `main`, [release-please](https://github.com/googleapis/release-please) opens a release PR from the conventional commits since the last release, and the Rollbot app merges it right away:
 
 | Commit type | Version bump |
 | --- | --- |
