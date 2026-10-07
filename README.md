@@ -28,6 +28,7 @@ make build    # compile
 make lint     # golangci-lint
 make test     # unit tests
 make testacc  # acceptance tests; creates real objects in the JumpCloud org behind JUMPCLOUD_API_KEY
+make docs     # regenerate docs/ from the schema and examples/
 ```
 
 To try a local build, install it with `make install` and point Terraform at it with a `dev_overrides` block in `~/.terraformrc`:
@@ -40,6 +41,17 @@ provider_installation {
   direct {}
 }
 ```
+
+## Releasing
+
+Releases are published to the Terraform Registry as [`loadsmart/jumpcloud`](https://registry.terraform.io/providers/loadsmart/jumpcloud). Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the binaries with GoReleaser and signs the checksums with the GPG key in the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` secrets. The HCP Terraform GitHub App notifies the Registry about the new release.
+
+```shell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Never move or delete a published tag; release a new version instead. The signing key and the `loadsmart` namespace are managed in the HCP Terraform `Loadsmart` organization (Registry > Public namespaces).
 
 ## License
 
