@@ -195,7 +195,6 @@ func errorMessage(body []byte) string {
 	return msg
 }
 
-// get fetches a single object.
 func get[T any](ctx context.Context, c *Client, path string) (*T, error) {
 	var out T
 	if err := c.do(ctx, http.MethodGet, path, nil, nil, &out); err != nil {

@@ -44,13 +44,9 @@ func (c *Client) UpdateUserGroup(ctx context.Context, id string, g UserGroup) (*
 		delete(current, k)
 	}
 
-	var err error
-	if current["name"], err = json.Marshal(g.Name); err != nil {
-		return nil, err
-	}
-	if current["description"], err = json.Marshal(g.Description); err != nil {
-		return nil, err
-	}
+	// Marshaling a string cannot fail.
+	current["name"], _ = json.Marshal(g.Name)
+	current["description"], _ = json.Marshal(g.Description)
 
 	var out UserGroup
 	if err := c.do(ctx, http.MethodPut, path, nil, current, &out); err != nil {
