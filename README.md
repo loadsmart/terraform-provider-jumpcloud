@@ -44,14 +44,18 @@ provider_installation {
 
 ## Releasing
 
-Releases are published to the Terraform Registry as [`loadsmart/jumpcloud`](https://registry.terraform.io/providers/loadsmart/jumpcloud). Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds the binaries with GoReleaser and signs the checksums with the GPG key in the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` secrets. The HCP Terraform GitHub App notifies the Registry about the new release.
+Releases are continuous and follow the same flow as `loadsmart/terraform-modules`. On every push to `main`, [release-please](https://github.com/googleapis/release-please) opens a release PR from the conventional commits since the last release, and the Rollbot app merges it right away:
 
-```shell
-git tag v0.1.0
-git push origin v0.1.0
-```
+| Commit type | Version bump |
+| --- | --- |
+| `fix:` | patch (`v0.1.0` → `v0.1.1`) |
+| `feat:` | minor (`v0.1.0` → `v0.2.0`) |
+| `feat!:` or `BREAKING CHANGE:` | minor while on `v0`, major from `v1` on |
+| `ci:`, `docs:`, `chore:`, `refactor:`, `test:` | no release |
 
-Never move or delete a published tag; release a new version instead. The signing key and the `loadsmart` namespace are managed in the HCP Terraform `Loadsmart` organization (Registry > Public namespaces).
+The merged release PR updates `CHANGELOG.md` and creates a draft GitHub release with its `v*` tag. The tag runs `.github/workflows/release.yml`, which runs the tests (including acceptance tests when `JUMPCLOUD_API_KEY` is set), uploads the GoReleaser artifacts signed with the `GPG_PRIVATE_KEY` key, and publishes the release. The HCP Terraform GitHub App then notifies the Terraform Registry ([`loadsmart/jumpcloud`](https://registry.terraform.io/providers/loadsmart/jumpcloud)).
+
+Published versions are permanent: never move or delete a tag, release a fix instead. The signing key and the `loadsmart` namespace are managed in the HCP Terraform `Loadsmart` organization (Registry > Public namespaces).
 
 ## License
 

@@ -1,11 +1,11 @@
 name: Release
 
-# Publishes a signed GitHub release for tags like v0.1.0. The Terraform Registry
-# picks it up through the HCP Terraform GitHub App on this repository.
+# Runs for v* tags, normally created by release-please as a draft release. GoReleaser
+# uploads the signed artifacts to that draft and then publishes it, so the Terraform
+# Registry only sees complete releases.
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -13,7 +13,10 @@ permissions:
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
+    env:
+      JUMPCLOUD_API_KEY: ${{ secrets.JUMPCLOUD_API_KEY }}
+      JUMPCLOUD_ORG_ID: ${{ secrets.JUMPCLOUD_ORG_ID }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
@@ -22,6 +25,17 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Unit tests
+        run: go test -count=1 ./...
+      - uses: hashicorp/setup-terraform@v4.0.1
+        if: env.JUMPCLOUD_API_KEY != ''
+        with:
+          terraform_wrapper: false
+      - name: Acceptance tests
+        if: env.JUMPCLOUD_API_KEY != ''
+        run: make testacc
+
       - name: Import GPG key
         id: import_gpg
         uses: crazy-max/ghaction-import-gpg@v7.0.0

@@ -49,8 +49,13 @@ signs:
       - --detach-sign
       - ${artifact}
 release:
+  # release-please creates a draft release named after the tag; upload into it and
+  # keep its notes. A tag pushed by hand gets a new release instead.
+  use_existing_draft: true
+  mode: keep-existing
   extra_files:
     - glob: terraform-registry-manifest.json
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
 changelog:
-  use: github-native
+  # Release notes come from release-please (CHANGELOG.md).
+  disable: true
