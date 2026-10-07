@@ -12,12 +12,7 @@ type Application struct {
 	Name         string `json:"name"`
 	DisplayName  string `json:"displayName"`
 	DisplayLabel string `json:"displayLabel"`
-	Description  string `json:"description"`
 	SSOURL       string `json:"ssoUrl"`
-	Active       bool   `json:"active"`
-	SSO          struct {
-		Type string `json:"type"`
-	} `json:"sso"`
 }
 
 // Association target types accepted by the application associations endpoint.
@@ -28,17 +23,13 @@ const (
 
 // GetApplication returns ErrNotFound when the application does not exist.
 func (c *Client) GetApplication(ctx context.Context, id string) (*Application, error) {
-	var out Application
-	if err := c.do(ctx, http.MethodGet, "/api/applications/"+url.PathEscape(id), nil, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return get[Application](ctx, c, "/api/applications/"+url.PathEscape(id))
 }
 
 // ListApplications returns applications whose fields equal every value in filters
 // (e.g. {"displayLabel": "Grafana"}). An empty map returns every application.
 func (c *Client) ListApplications(ctx context.Context, filters map[string]string) ([]Application, error) {
-	return listV1[Application](ctx, c, "/api/applications", v1Filters(filters))
+	return list[Application](ctx, c, "/api/applications", v1Filters(filters), true)
 }
 
 // AddApplicationAssociation binds a user or user group to an application.
@@ -65,7 +56,7 @@ func (c *Client) ApplicationAssociationIDs(ctx context.Context, appID, targetTyp
 		} `json:"to"`
 	}
 	path := "/api/v2/applications/" + url.PathEscape(appID) + "/associations"
-	conns, err := listV2[graphConnection](ctx, c, path, url.Values{"targets": {targetType}})
+	conns, err := list[graphConnection](ctx, c, path, url.Values{"targets": {targetType}}, false)
 	if err != nil {
 		return nil, err
 	}

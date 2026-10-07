@@ -19,7 +19,6 @@ var readOnlyUserGroupFields = []string{"id", "type", "organizationObjectId", "su
 
 // CreateUserGroup creates a user group and returns it with its ID.
 func (c *Client) CreateUserGroup(ctx context.Context, g UserGroup) (*UserGroup, error) {
-	g.ID = ""
 	var out UserGroup
 	if err := c.do(ctx, http.MethodPost, "/api/v2/usergroups", nil, g, &out); err != nil {
 		return nil, err
@@ -29,11 +28,7 @@ func (c *Client) CreateUserGroup(ctx context.Context, g UserGroup) (*UserGroup, 
 
 // GetUserGroup returns ErrNotFound when the group does not exist.
 func (c *Client) GetUserGroup(ctx context.Context, id string) (*UserGroup, error) {
-	var out UserGroup
-	if err := c.do(ctx, http.MethodGet, "/api/v2/usergroups/"+url.PathEscape(id), nil, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return get[UserGroup](ctx, c, "/api/v2/usergroups/"+url.PathEscape(id))
 }
 
 // UpdateUserGroup sets the group's name and description. PUT is a full replace, so the
@@ -71,13 +66,13 @@ func (c *Client) DeleteUserGroup(ctx context.Context, id string) error {
 
 // ListUserGroups returns every user group in the organization.
 func (c *Client) ListUserGroups(ctx context.Context) ([]UserGroup, error) {
-	return listV2[UserGroup](ctx, c, "/api/v2/usergroups", nil)
+	return list[UserGroup](ctx, c, "/api/v2/usergroups", nil, false)
 }
 
 // FindUserGroupsByName returns groups whose name equals name exactly. JumpCloud's
 // filter values accept wildcards, so results are re-checked for an exact match.
 func (c *Client) FindUserGroupsByName(ctx context.Context, name string) ([]UserGroup, error) {
-	groups, err := listV2[UserGroup](ctx, c, "/api/v2/usergroups", url.Values{"filter": {"name:eq:" + name}})
+	groups, err := list[UserGroup](ctx, c, "/api/v2/usergroups", url.Values{"filter": {"name:eq:" + name}}, false)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +108,7 @@ func (c *Client) UserGroupIDs(ctx context.Context, userID string) ([]string, err
 		Type  string              `json:"type"`
 		Paths [][]json.RawMessage `json:"paths"`
 	}
-	objs, err := listV2[graphObjectWithPaths](ctx, c, "/api/v2/users/"+url.PathEscape(userID)+"/memberof", nil)
+	objs, err := list[graphObjectWithPaths](ctx, c, "/api/v2/users/"+url.PathEscape(userID)+"/memberof", nil, false)
 	if err != nil {
 		return nil, err
 	}

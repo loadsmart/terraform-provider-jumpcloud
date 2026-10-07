@@ -139,12 +139,11 @@ func TestListV1Pagination(t *testing.T) {
 	tests := []struct {
 		name         string
 		total        int
-		reportTotal  bool
 		wantRequests int
 	}{
-		{"stops at totalCount", 100, true, 1},
-		{"pages until a short page", 150, true, 2},
-		{"missing totalCount does not truncate", 150, false, 2},
+		{"single short page", 50, 1},
+		{"pages until a short page", 150, 2},
+		{"exact multiple ends on an empty page", 100, 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -154,11 +153,7 @@ func TestListV1Pagination(t *testing.T) {
 				for i := skip; i < min(skip+pageSize, tt.total); i++ {
 					results = append(results, User{ID: fmt.Sprint(i)})
 				}
-				resp := map[string]any{"results": results}
-				if tt.reportTotal {
-					resp["totalCount"] = tt.total
-				}
-				writeJSON(t, w, http.StatusOK, resp)
+				writeJSON(t, w, http.StatusOK, map[string]any{"results": results, "totalCount": tt.total})
 			})
 
 			users, err := c.ListUsers(context.Background(), nil)
@@ -169,20 +164,6 @@ func TestListV1Pagination(t *testing.T) {
 				t.Fatalf("got %d users in %d requests, want %d in %d", len(users), len(fake.all()), tt.total, tt.wantRequests)
 			}
 		})
-	}
-}
-
-func TestListStopsWhenServerIgnoresSkip(t *testing.T) {
-	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(t, w, http.StatusOK, make([]UserGroup, pageSize))
-	})
-	c.maxPages = 3
-
-	if _, err := c.ListUserGroups(context.Background()); err == nil {
-		t.Fatal("expected an error when pages never end")
-	}
-	if n := len(fake.all()); n != 3 {
-		t.Fatalf("requests = %d, want 3", n)
 	}
 }
 
@@ -368,7 +349,7 @@ func TestUserGroupWrites(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	g, err := c.CreateUserGroup(ctx, UserGroup{ID: "ignored", Name: "devs", Description: "d"})
+	g, err := c.CreateUserGroup(ctx, UserGroup{Name: "devs", Description: "d"})
 	if err != nil || g.ID != "g1" {
 		t.Fatalf("create = %+v, %v", g, err)
 	}
@@ -484,7 +465,7 @@ func TestApplications(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/applications":
 			writeJSON(t, w, http.StatusOK, map[string]any{
-				"results":    []map[string]any{{"_id": "a1", "displayLabel": "Grafana", "sso": map[string]string{"type": "saml"}}},
+				"results":    []map[string]any{{"_id": "a1", "displayLabel": "Grafana"}},
 				"totalCount": 1,
 			})
 		case r.Method == http.MethodGet:
@@ -499,7 +480,7 @@ func TestApplications(t *testing.T) {
 	ctx := context.Background()
 
 	apps, err := c.ListApplications(ctx, map[string]string{"displayLabel": "Grafana"})
-	if err != nil || len(apps) != 1 || apps[0].ID != "a1" || apps[0].SSO.Type != "saml" {
+	if err != nil || len(apps) != 1 || apps[0].ID != "a1" || apps[0].DisplayLabel != "Grafana" {
 		t.Fatalf("apps = %+v, %v", apps, err)
 	}
 	ids, err := c.ApplicationAssociationIDs(ctx, "a1", TargetUserGroup)

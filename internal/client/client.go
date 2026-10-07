@@ -53,7 +53,6 @@ type Client struct {
 	maxAttempts int
 	retryWait   time.Duration // first backoff interval, doubled on every retry
 	maxWait     time.Duration // upper bound for any single wait, including Retry-After
-	maxPages    int           // guards list loops against a server that ignores skip
 }
 
 // New returns a client for baseURL, e.g. https://console.jumpcloud.com. orgID may be empty.
@@ -67,7 +66,6 @@ func New(baseURL, apiKey, orgID, userAgent string) *Client {
 		maxAttempts: 5,
 		retryWait:   time.Second,
 		maxWait:     30 * time.Second,
-		maxPages:    10000,
 	}
 }
 
@@ -197,50 +195,44 @@ func errorMessage(body []byte) string {
 	return msg
 }
 
-// listV2 pages through a v2 endpoint, which returns a bare JSON array.
-func listV2[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
-	q := url.Values{}
-	maps.Copy(q, query)
-	q.Set("limit", strconv.Itoa(pageSize))
-
-	var all []T
-	for page := 0; page < c.maxPages; page++ {
-		q.Set("skip", strconv.Itoa(page*pageSize))
-		var results []T
-		if err := c.do(ctx, http.MethodGet, path, q, nil, &results); err != nil {
-			return nil, err
-		}
-		all = append(all, results...)
-		if len(results) < pageSize {
-			return all, nil
-		}
+// get fetches a single object.
+func get[T any](ctx context.Context, c *Client, path string) (*T, error) {
+	var out T
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &out); err != nil {
+		return nil, err
 	}
-	return nil, fmt.Errorf("jumpcloud: GET %s: stopped after %d pages", path, c.maxPages)
+	return &out, nil
 }
 
-// listV1 pages through a v1 endpoint, which wraps results in {"results": [...], "totalCount": n}.
-func listV1[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
+// list pages through a list endpoint until it returns a short page. v2 endpoints
+// return a bare JSON array; v1 endpoints wrap it in {"results": [...]}.
+func list[T any](ctx context.Context, c *Client, path string, query url.Values, v1 bool) ([]T, error) {
 	q := url.Values{}
 	maps.Copy(q, query)
 	q.Set("limit", strconv.Itoa(pageSize))
 
 	var all []T
-	for page := 0; page < c.maxPages; page++ {
-		q.Set("skip", strconv.Itoa(page*pageSize))
-		var resp struct {
-			Results    []T `json:"results"`
-			TotalCount int `json:"totalCount"`
+	for skip := 0; ; skip += pageSize {
+		q.Set("skip", strconv.Itoa(skip))
+		var page []T
+		var err error
+		if v1 {
+			var wrapped struct {
+				Results []T `json:"results"`
+			}
+			err = c.do(ctx, http.MethodGet, path, q, nil, &wrapped)
+			page = wrapped.Results
+		} else {
+			err = c.do(ctx, http.MethodGet, path, q, nil, &page)
 		}
-		if err := c.do(ctx, http.MethodGet, path, q, nil, &resp); err != nil {
+		if err != nil {
 			return nil, err
 		}
-		all = append(all, resp.Results...)
-		// totalCount saves a request when present; a short page ends the list either way.
-		if len(resp.Results) < pageSize || (resp.TotalCount > 0 && len(all) >= resp.TotalCount) {
+		all = append(all, page...)
+		if len(page) < pageSize {
 			return all, nil
 		}
 	}
-	return nil, fmt.Errorf("jumpcloud: GET %s: stopped after %d pages", path, c.maxPages)
 }
 
 // v1Filters encodes exact-match filters as filter[0]=field:$eq:value&filter[1]=...,
