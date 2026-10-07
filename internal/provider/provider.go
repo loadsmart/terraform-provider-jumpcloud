@@ -13,6 +13,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/provider/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+
+	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
 )
 
 const defaultAPIURL = "https://console.jumpcloud.com"
@@ -30,7 +32,7 @@ type providerModel struct {
 	APIURL types.String `tfsdk:"api_url"`
 }
 
-// Config holds the resolved provider settings handed to resources and data sources.
+// Config holds the resolved provider settings.
 type Config struct {
 	APIKey string
 	OrgID  string
@@ -93,8 +95,9 @@ func (p *jumpcloudProvider) Configure(ctx context.Context, req provider.Configur
 		return
 	}
 
-	resp.DataSourceData = cfg
-	resp.ResourceData = cfg
+	c := client.New(cfg.APIURL, cfg.APIKey, cfg.OrgID, "terraform-provider-jumpcloud/"+p.version)
+	resp.DataSourceData = c
+	resp.ResourceData = c
 }
 
 // resolveConfig merges provider arguments with environment variables; arguments win.
