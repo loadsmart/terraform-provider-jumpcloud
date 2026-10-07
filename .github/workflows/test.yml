@@ -25,7 +25,39 @@ jobs:
         uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: latest
+      # Resource unit tests run the Terraform CLI against a fake JumpCloud API.
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_wrapper: false
       - run: go test -v -cover -timeout=120s ./...
+
+  acceptance:
+    name: Acceptance tests
+    # Runs against the real JumpCloud organization, so only after merge, and only when
+    # the API key secret is configured.
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency: acceptance
+    env:
+      JUMPCLOUD_API_KEY: ${{ secrets.JUMPCLOUD_API_KEY }}
+      JUMPCLOUD_ORG_ID: ${{ secrets.JUMPCLOUD_ORG_ID }}
+      JUMPCLOUD_TEST_USER_EMAIL: ${{ vars.JUMPCLOUD_TEST_USER_EMAIL }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        if: env.JUMPCLOUD_API_KEY != ''
+      - uses: actions/setup-go@v7.0.0
+        if: env.JUMPCLOUD_API_KEY != ''
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: hashicorp/setup-terraform@v4.0.1
+        if: env.JUMPCLOUD_API_KEY != ''
+        with:
+          terraform_wrapper: false
+      - run: make testacc
+        if: env.JUMPCLOUD_API_KEY != ''
 
   docs:
     name: Generated docs are up to date
