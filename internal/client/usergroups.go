@@ -9,12 +9,13 @@ import (
 
 // UserGroup is a JumpCloud user group (v2 API).
 type UserGroup struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name"`
-	// Description is accepted on create; the v2 spec omits it from responses and PUT,
-	// so acceptance tests must confirm it round-trips.
+	ID          string `json:"id,omitempty"`
+	Name        string `json:"name"`
 	Description string `json:"description"`
 }
+
+// readOnlyUserGroupFields appear in UserGroup responses but not in the UserGroupPut schema.
+var readOnlyUserGroupFields = []string{"id", "type", "organizationObjectId", "suggestionCounts", "memberQueryErrorFlags"}
 
 // CreateUserGroup creates a user group and returns it with its ID.
 func (c *Client) CreateUserGroup(ctx context.Context, g UserGroup) (*UserGroup, error) {
@@ -35,11 +36,29 @@ func (c *Client) GetUserGroup(ctx context.Context, id string) (*UserGroup, error
 	return &out, nil
 }
 
-// UpdateUserGroup replaces the group's name and description.
+// UpdateUserGroup sets the group's name and description. PUT is a full replace, so the
+// current group is read first and every other field (attributes, email, member query)
+// is sent back unchanged.
 func (c *Client) UpdateUserGroup(ctx context.Context, id string, g UserGroup) (*UserGroup, error) {
-	g.ID = ""
+	path := "/api/v2/usergroups/" + url.PathEscape(id)
+	var current map[string]json.RawMessage
+	if err := c.do(ctx, http.MethodGet, path, nil, nil, &current); err != nil {
+		return nil, err
+	}
+	for _, k := range readOnlyUserGroupFields {
+		delete(current, k)
+	}
+
+	var err error
+	if current["name"], err = json.Marshal(g.Name); err != nil {
+		return nil, err
+	}
+	if current["description"], err = json.Marshal(g.Description); err != nil {
+		return nil, err
+	}
+
 	var out UserGroup
-	if err := c.do(ctx, http.MethodPut, "/api/v2/usergroups/"+url.PathEscape(id), nil, g, &out); err != nil {
+	if err := c.do(ctx, http.MethodPut, path, nil, current, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

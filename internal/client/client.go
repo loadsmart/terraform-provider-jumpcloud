@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"slices"
@@ -19,8 +20,12 @@ import (
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 )
 
-// pageSize is the maximum page size JumpCloud accepts on list endpoints.
-const pageSize = 100
+const (
+	// pageSize is the maximum page size JumpCloud accepts on list endpoints.
+	pageSize = 100
+	// maxResponseBytes bounds how much of a response body is read into memory.
+	maxResponseBytes = 32 << 20
+)
 
 // ErrNotFound is returned when JumpCloud answers 404 for the requested object.
 var ErrNotFound = errors.New("jumpcloud: not found")
@@ -48,6 +53,7 @@ type Client struct {
 	maxAttempts int
 	retryWait   time.Duration // first backoff interval, doubled on every retry
 	maxWait     time.Duration // upper bound for any single wait, including Retry-After
+	maxPages    int           // guards list loops against a server that ignores skip
 }
 
 // New returns a client for baseURL, e.g. https://console.jumpcloud.com. orgID may be empty.
@@ -61,6 +67,7 @@ func New(baseURL, apiKey, orgID, userAgent string) *Client {
 		maxAttempts: 5,
 		retryWait:   time.Second,
 		maxWait:     30 * time.Second,
+		maxPages:    10000,
 	}
 }
 
@@ -99,7 +106,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		if err != nil {
 			return fmt.Errorf("jumpcloud: %s %s: %w", method, path, err)
 		}
-		respBody, err := io.ReadAll(resp.Body)
+		respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 		_ = resp.Body.Close()
 		if err != nil {
 			return fmt.Errorf("jumpcloud: reading %s %s response: %w", method, path, err)
@@ -108,8 +115,11 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 
 		switch {
 		case resp.StatusCode >= 200 && resp.StatusCode < 300:
-			if out == nil || len(respBody) == 0 {
+			if out == nil {
 				return nil
+			}
+			if len(respBody) == 0 {
+				return fmt.Errorf("jumpcloud: %s %s returned %d with an empty body", method, path, resp.StatusCode)
 			}
 			if err := json.Unmarshal(respBody, out); err != nil {
 				return fmt.Errorf("jumpcloud: decoding %s %s response: %w", method, path, err)
@@ -118,8 +128,8 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		case resp.StatusCode == http.StatusNotFound:
 			return ErrNotFound
 		case attempt < c.maxAttempts && retryable(method, resp.StatusCode):
-			if err := c.wait(ctx, attempt, resp.Header.Get("Retry-After")); err != nil {
-				return err
+			if err := sleep(ctx, c.backoff(attempt, resp.Header.Get("Retry-After"))); err != nil {
+				return fmt.Errorf("jumpcloud: %s %s: waiting to retry: %w", method, path, err)
 			}
 		default:
 			return &APIError{Method: method, Path: path, StatusCode: resp.StatusCode, Message: errorMessage(respBody)}
@@ -137,13 +147,21 @@ func retryable(method string, status int) bool {
 	return idempotent && (status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout)
 }
 
-func (c *Client) wait(ctx context.Context, attempt int, retryAfter string) error {
-	d := c.retryWait << (attempt - 1)
+// backoff returns how long to wait before the next attempt. A Retry-After header in
+// seconds wins; otherwise the wait doubles per attempt, with jitter so parallel
+// Terraform operations that were throttled together do not retry in lockstep.
+func (c *Client) backoff(attempt int, retryAfter string) time.Duration {
+	var d time.Duration
 	if secs, err := strconv.Atoi(retryAfter); err == nil && secs >= 0 {
 		d = time.Duration(secs) * time.Second
+	} else {
+		d = c.retryWait << (attempt - 1)
+		d = d/2 + rand.N(d/2+1)
 	}
-	d = min(d, c.maxWait)
+	return min(d, c.maxWait)
+}
 
+func sleep(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)
 	defer t.Stop()
 	select {
@@ -169,72 +187,68 @@ func errorMessage(body []byte) string {
 		}
 	}
 	msg := strings.TrimSpace(string(body))
-	if len(msg) > 512 {
-		msg = msg[:512] + "..."
-	}
 	if msg == "" {
 		return "empty response body"
+	}
+	if len(msg) > 512 {
+		// Drop any multi-byte character split by the cut.
+		msg = strings.ToValidUTF8(msg[:512], "") + "..."
 	}
 	return msg
 }
 
 // listV2 pages through a v2 endpoint, which returns a bare JSON array.
 func listV2[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
-	var all []T
-	for skip := 0; ; skip += pageSize {
-		q := cloneQuery(query)
-		q.Set("limit", strconv.Itoa(pageSize))
-		q.Set("skip", strconv.Itoa(skip))
+	q := url.Values{}
+	maps.Copy(q, query)
+	q.Set("limit", strconv.Itoa(pageSize))
 
-		var page []T
-		if err := c.do(ctx, http.MethodGet, path, q, nil, &page); err != nil {
+	var all []T
+	for page := 0; page < c.maxPages; page++ {
+		q.Set("skip", strconv.Itoa(page*pageSize))
+		var results []T
+		if err := c.do(ctx, http.MethodGet, path, q, nil, &results); err != nil {
 			return nil, err
 		}
-		all = append(all, page...)
-		if len(page) < pageSize {
+		all = append(all, results...)
+		if len(results) < pageSize {
 			return all, nil
 		}
 	}
+	return nil, fmt.Errorf("jumpcloud: GET %s: stopped after %d pages", path, c.maxPages)
 }
 
 // listV1 pages through a v1 endpoint, which wraps results in {"results": [...], "totalCount": n}.
 func listV1[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
-	var all []T
-	for skip := 0; ; skip += pageSize {
-		q := cloneQuery(query)
-		q.Set("limit", strconv.Itoa(pageSize))
-		q.Set("skip", strconv.Itoa(skip))
+	q := url.Values{}
+	maps.Copy(q, query)
+	q.Set("limit", strconv.Itoa(pageSize))
 
-		var page struct {
+	var all []T
+	for page := 0; page < c.maxPages; page++ {
+		q.Set("skip", strconv.Itoa(page*pageSize))
+		var resp struct {
 			Results    []T `json:"results"`
 			TotalCount int `json:"totalCount"`
 		}
-		if err := c.do(ctx, http.MethodGet, path, q, nil, &page); err != nil {
+		if err := c.do(ctx, http.MethodGet, path, q, nil, &resp); err != nil {
 			return nil, err
 		}
-		all = append(all, page.Results...)
-		if len(page.Results) < pageSize || len(all) >= page.TotalCount {
+		all = append(all, resp.Results...)
+		// totalCount saves a request when present; a short page ends the list either way.
+		if len(resp.Results) < pageSize || (resp.TotalCount > 0 && len(all) >= resp.TotalCount) {
 			return all, nil
 		}
 	}
-}
-
-func cloneQuery(q url.Values) url.Values {
-	out := url.Values{}
-	for k, v := range q {
-		out[k] = append([]string(nil), v...)
-	}
-	return out
+	return nil, fmt.Errorf("jumpcloud: GET %s: stopped after %d pages", path, c.maxPages)
 }
 
 // v1Filters encodes exact-match filters as filter[0]=field:$eq:value&filter[1]=...,
 // which JumpCloud ANDs together. Keys are sorted so requests are deterministic.
 func v1Filters(filters map[string]string) url.Values {
 	q := url.Values{}
-	i := 0
-	for _, field := range slices.Sorted(maps.Keys(filters)) {
+	for i, field := range slices.Sorted(maps.Keys(filters)) {
 		q.Set(fmt.Sprintf("filter[%d]", i), field+":$eq:"+filters[field])
-		i++
 	}
 	return q
 }

@@ -10,9 +10,11 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // recorded is one request seen by the fake JumpCloud server.
@@ -133,27 +135,60 @@ func TestListV2Paginates(t *testing.T) {
 	}
 }
 
-func TestListV1StopsAtTotalCount(t *testing.T) {
-	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-		results := make([]User, 100)
-		for i := range results {
-			results[i] = User{ID: fmt.Sprint(i)}
-		}
-		writeJSON(t, w, http.StatusOK, map[string]any{"results": results, "totalCount": 100})
-	})
-
-	users, err := c.ListUsers(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
+func TestListV1Pagination(t *testing.T) {
+	tests := []struct {
+		name         string
+		total        int
+		reportTotal  bool
+		wantRequests int
+	}{
+		{"stops at totalCount", 100, true, 1},
+		{"pages until a short page", 150, true, 2},
+		{"missing totalCount does not truncate", 150, false, 2},
 	}
-	if len(users) != 100 || len(fake.all()) != 1 {
-		t.Fatalf("got %d users in %d requests, want 100 in 1", len(users), len(fake.all()))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+				skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
+				results := []User{}
+				for i := skip; i < min(skip+pageSize, tt.total); i++ {
+					results = append(results, User{ID: fmt.Sprint(i)})
+				}
+				resp := map[string]any{"results": results}
+				if tt.reportTotal {
+					resp["totalCount"] = tt.total
+				}
+				writeJSON(t, w, http.StatusOK, resp)
+			})
+
+			users, err := c.ListUsers(context.Background(), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(users) != tt.total || len(fake.all()) != tt.wantRequests {
+				t.Fatalf("got %d users in %d requests, want %d in %d", len(users), len(fake.all()), tt.total, tt.wantRequests)
+			}
+		})
+	}
+}
+
+func TestListStopsWhenServerIgnoresSkip(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, make([]UserGroup, pageSize))
+	})
+	c.maxPages = 3
+
+	if _, err := c.ListUserGroups(context.Background()); err == nil {
+		t.Fatal("expected an error when pages never end")
+	}
+	if n := len(fake.all()); n != 3 {
+		t.Fatalf("requests = %d, want 3", n)
 	}
 }
 
 func TestRetriesRateLimit(t *testing.T) {
 	calls := 0
-	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if calls < 3 {
 			w.Header().Set("Retry-After", "0")
@@ -167,37 +202,95 @@ func TestRetriesRateLimit(t *testing.T) {
 	if err := c.AddUserToGroup(context.Background(), "g1", "u1"); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 3 {
-		t.Fatalf("calls = %d, want 3", calls)
+	reqs := fake.all()
+	if len(reqs) != 3 {
+		t.Fatalf("calls = %d, want 3", len(reqs))
+	}
+	for i, r := range reqs {
+		if r.Body != `{"op":"add","type":"user","id":"u1"}` {
+			t.Errorf("attempt %d body = %q, want the request body resent", i+1, r.Body)
+		}
 	}
 }
 
-func TestServerErrorRetryPolicy(t *testing.T) {
+func TestBackoff(t *testing.T) {
+	c := New("https://example.com", "k", "", "ua")
+	c.retryWait = 100 * time.Millisecond
+	c.maxWait = 5 * time.Second
+
+	if got := c.backoff(1, "2"); got != 2*time.Second {
+		t.Errorf("Retry-After 2 = %v, want 2s", got)
+	}
+	if got := c.backoff(1, "60"); got != 5*time.Second {
+		t.Errorf("Retry-After 60 = %v, want capped at 5s", got)
+	}
+	// Without a usable Retry-After, attempt n waits between half and all of retryWait*2^(n-1).
+	for _, tt := range []struct {
+		attempt int
+		header  string
+		lo, hi  time.Duration
+	}{
+		{1, "", 50 * time.Millisecond, 100 * time.Millisecond},
+		{3, "soon", 200 * time.Millisecond, 400 * time.Millisecond},
+		{10, "-1", 5 * time.Second, 5 * time.Second},
+	} {
+		for range 50 {
+			if got := c.backoff(tt.attempt, tt.header); got < tt.lo || got > tt.hi {
+				t.Fatalf("backoff(%d, %q) = %v, want within [%v, %v]", tt.attempt, tt.header, got, tt.lo, tt.hi)
+			}
+		}
+	}
+}
+
+func TestRetryPolicy(t *testing.T) {
+	ctx := context.Background()
 	tests := []struct {
 		name      string
+		status    int
 		call      func(*Client) error
 		wantCalls int
 	}{
-		{"GET retries until attempts run out", func(c *Client) error { _, err := c.GetUserGroup(context.Background(), "g1"); return err }, 5},
-		{"POST is not retried", func(c *Client) error {
-			_, err := c.CreateUserGroup(context.Background(), UserGroup{Name: "x"})
+		{"GET retries 503 until attempts run out", http.StatusServiceUnavailable, func(c *Client) error {
+			_, err := c.GetUserGroup(ctx, "g1")
+			return err
+		}, 5},
+		{"PUT retries 502", http.StatusBadGateway, func(c *Client) error {
+			return c.do(ctx, http.MethodPut, "/api/v2/usergroups/g1", nil, map[string]string{"name": "x"}, nil)
+		}, 5},
+		{"DELETE retries 504", http.StatusGatewayTimeout, func(c *Client) error { return c.DeleteUserGroup(ctx, "g1") }, 5},
+		{"POST does not retry 503", http.StatusServiceUnavailable, func(c *Client) error {
+			_, err := c.CreateUserGroup(ctx, UserGroup{Name: "x"})
 			return err
 		}, 1},
+		{"GET does not retry 500", http.StatusInternalServerError, func(c *Client) error {
+			_, err := c.GetUserGroup(ctx, "g1")
+			return err
+		}, 1},
+		{"persistent 429 gives up", http.StatusTooManyRequests, func(c *Client) error { return c.AddUserToGroup(ctx, "g1", "u1") }, 5},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-				writeJSON(t, w, http.StatusServiceUnavailable, map[string]string{"message": "down"})
+				writeJSON(t, w, tt.status, map[string]string{"message": "nope"})
 			})
 			err := tt.call(c)
 			var apiErr *APIError
-			if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusServiceUnavailable || apiErr.Message != "down" {
-				t.Fatalf("error = %v, want 503 APIError", err)
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != tt.status || apiErr.Message != "nope" {
+				t.Fatalf("error = %v, want %d APIError", err, tt.status)
 			}
 			if n := len(fake.all()); n != tt.wantCalls {
 				t.Fatalf("calls = %d, want %d", n, tt.wantCalls)
 			}
 		})
+	}
+}
+
+func TestEmptySuccessBodyIsAnError(t *testing.T) {
+	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+	})
+	if g, err := c.CreateUserGroup(context.Background(), UserGroup{Name: "x"}); err == nil {
+		t.Fatalf("create = %+v, want an error instead of a group without an ID", g)
 	}
 }
 
@@ -238,6 +331,13 @@ func TestErrorMessage(t *testing.T) {
 			t.Errorf("errorMessage(%q) = %q, want %q", body, got, want)
 		}
 	}
+
+	// A long body is cut at 512 bytes without leaving half of a multi-byte character.
+	long := strings.Repeat("a", 511) + "é" + strings.Repeat("b", 100)
+	got := errorMessage([]byte(long))
+	if !utf8.ValidString(got) || got != strings.Repeat("a", 511)+"..." {
+		t.Errorf("truncated message = %q", got)
+	}
 }
 
 func TestFindUserGroupsByNameRequiresExactMatch(t *testing.T) {
@@ -259,15 +359,11 @@ func TestFindUserGroupsByNameRequiresExactMatch(t *testing.T) {
 
 func TestUserGroupWrites(t *testing.T) {
 	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPost, http.MethodPut:
-			if r.URL.Path == "/api/v2/usergroups/g1/members" {
-				w.WriteHeader(http.StatusNoContent)
-				return
-			}
-			writeJSON(t, w, http.StatusOK, map[string]string{"id": "g1", "name": "devs", "description": "d"})
-		case http.MethodDelete:
+		switch {
+		case r.URL.Path == "/api/v2/usergroups/g1/members", r.Method == http.MethodDelete:
 			w.WriteHeader(http.StatusNoContent)
+		default:
+			writeJSON(t, w, http.StatusOK, map[string]string{"id": "g1", "name": "devs", "description": "d"})
 		}
 	})
 	ctx := context.Background()
@@ -275,9 +371,6 @@ func TestUserGroupWrites(t *testing.T) {
 	g, err := c.CreateUserGroup(ctx, UserGroup{ID: "ignored", Name: "devs", Description: "d"})
 	if err != nil || g.ID != "g1" {
 		t.Fatalf("create = %+v, %v", g, err)
-	}
-	if _, err := c.UpdateUserGroup(ctx, "g1", UserGroup{Name: "devs"}); err != nil {
-		t.Fatal(err)
 	}
 	if err := c.AddUserToGroup(ctx, "g1", "u1"); err != nil {
 		t.Fatal(err)
@@ -289,15 +382,52 @@ func TestUserGroupWrites(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []recorded{
+	assertRequests(t, fake.all(), []recorded{
 		{Method: "POST", Path: "/api/v2/usergroups", Body: `{"name":"devs","description":"d"}`},
-		// An empty description is sent so updates can clear it.
-		{Method: "PUT", Path: "/api/v2/usergroups/g1", Body: `{"name":"devs","description":""}`},
 		{Method: "POST", Path: "/api/v2/usergroups/g1/members", Body: `{"op":"add","type":"user","id":"u1"}`},
 		{Method: "POST", Path: "/api/v2/usergroups/g1/members", Body: `{"op":"remove","type":"user","id":"u1"}`},
 		{Method: "DELETE", Path: "/api/v2/usergroups/g1"},
+	})
+}
+
+func TestUpdateUserGroupKeepsUnmanagedFields(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			writeJSON(t, w, http.StatusOK, map[string]any{
+				"id": "g1", "type": "user_group", "name": "old", "description": "old desc",
+				"email":            "devs@loadsmart.com",
+				"attributes":       map[string]any{"sudo": map[string]bool{"enabled": true}},
+				"membershipMethod": "STATIC",
+				"suggestionCounts": map[string]int{"add": 1},
+			})
+			return
+		}
+		writeJSON(t, w, http.StatusOK, map[string]string{"id": "g1", "name": "new"})
+	})
+
+	g, err := c.UpdateUserGroup(context.Background(), "g1", UserGroup{Name: "new"})
+	if err != nil || g.Name != "new" {
+		t.Fatalf("update = %+v, %v", g, err)
 	}
-	assertRequests(t, fake.all(), want)
+
+	reqs := fake.all()
+	if len(reqs) != 2 || reqs[0].Method != http.MethodGet || reqs[1].Method != http.MethodPut || reqs[1].Path != "/api/v2/usergroups/g1" {
+		t.Fatalf("requests = %+v, want GET then PUT", reqs)
+	}
+	var sent map[string]any
+	if err := json.Unmarshal([]byte(reqs[1].Body), &sent); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]any{
+		"name":             "new",
+		"description":      "", // an empty description clears it
+		"email":            "devs@loadsmart.com",
+		"attributes":       map[string]any{"sudo": map[string]any{"enabled": true}},
+		"membershipMethod": "STATIC",
+	}
+	if !reflect.DeepEqual(sent, want) {
+		t.Fatalf("PUT body = %v\nwant %v", sent, want)
+	}
 }
 
 func TestUserGroupIDsReturnsDirectMembershipsOnly(t *testing.T) {
