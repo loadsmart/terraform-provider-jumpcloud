@@ -9,6 +9,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/tfsdk"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-go/tftypes"
+
+	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
 )
 
 func TestProviderSchemaIsValid(t *testing.T) {
@@ -121,12 +123,11 @@ func TestConfigure(t *testing.T) {
 		if resp.Diagnostics.HasError() {
 			t.Fatalf("unexpected diagnostics: %v", resp.Diagnostics)
 		}
-		cfg, ok := resp.ResourceData.(*Config)
-		if !ok || cfg.APIKey != "k" || cfg.APIURL != defaultAPIURL {
-			t.Fatalf("resource data = %#v", resp.ResourceData)
+		if _, ok := resp.ResourceData.(*client.Client); !ok {
+			t.Fatalf("resource data = %#v, want *client.Client", resp.ResourceData)
 		}
 		if resp.DataSourceData != resp.ResourceData {
-			t.Fatal("data sources and resources should share the same config")
+			t.Fatal("data sources and resources should share the same client")
 		}
 	})
 
