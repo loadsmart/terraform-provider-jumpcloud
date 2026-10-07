@@ -1,4 +1,3 @@
-# Builds the archives, checksums, and signature that the Terraform Registry expects.
 # See https://developer.hashicorp.com/terraform/registry/providers/publishing
 version: 2
 builds:
@@ -10,23 +9,8 @@ builds:
       - -trimpath
     ldflags:
       - '-s -w -X main.version={{ .Version }}'
-    goos:
-      - darwin
-      - freebsd
-      - linux
-      - windows
-    goarch:
-      - amd64
-      - '386'
-      - arm
-      - arm64
-    ignore:
-      - goos: darwin
-        goarch: '386'
-      - goos: darwin
-        goarch: arm
-      - goos: windows
-        goarch: arm
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
     binary: '{{ .ProjectName }}_v{{ .Version }}'
 archives:
   - formats:
@@ -37,7 +21,6 @@ checksum:
     - glob: terraform-registry-manifest.json
       name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
   name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
-  algorithm: sha256
 signs:
   - artifacts: checksum
     args:

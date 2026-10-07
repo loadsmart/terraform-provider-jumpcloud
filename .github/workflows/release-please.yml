@@ -1,18 +1,10 @@
 name: Release Please
 
-# Same flow as loadsmart/terraform-modules: release-please opens a release PR from the
-# conventional commits on main and the Rollbot app merges it right away, so every
-# feat: or fix: ships. Merging creates a draft release and its tag; the tag starts
-# release.yml, which uploads the signed artifacts and publishes the release.
 on:
   push:
     branches: [main]
 
 permissions: {}
-
-concurrency:
-  group: release-please
-  cancel-in-progress: false
 
 jobs:
   release-please:
@@ -39,9 +31,4 @@ jobs:
         if: steps.release.outputs.prs_created == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          RELEASE_PRS: ${{ steps.release.outputs.prs }}
-        run: |
-          jq -r '.[].number' <<< "$RELEASE_PRS" |
-            while read -r pr; do
-              gh pr merge "$pr" --repo "$GITHUB_REPOSITORY" --squash --admin
-            done
+        run: gh pr merge "${{ fromJSON(steps.release.outputs.pr).number }}" --repo "$GITHUB_REPOSITORY" --squash --admin

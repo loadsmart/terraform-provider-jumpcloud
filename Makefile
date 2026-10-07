@@ -15,7 +15,6 @@ lint:
 test:
 	go test -v -cover -timeout=120s -parallel=10 ./...
 
-# Regenerates docs/ from the provider schema and examples/.
 docs:
 	terraform fmt -recursive examples/
 	go run github.com/hashicorp/terraform-plugin-docs/cmd/tfplugindocs@v0.25.0 generate --provider-name jumpcloud

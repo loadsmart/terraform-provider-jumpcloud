@@ -53,7 +53,7 @@ Releases are continuous and follow the same flow as `loadsmart/terraform-modules
 | `feat!:` or `BREAKING CHANGE:` | minor while on `v0`, major from `v1` on |
 | `ci:`, `docs:`, `chore:`, `refactor:`, `test:` | no release |
 
-The merged release PR updates `CHANGELOG.md` and creates a draft GitHub release with its `v*` tag. The tag runs `.github/workflows/release.yml`, which runs the tests (including acceptance tests when `JUMPCLOUD_API_KEY` is set), uploads the GoReleaser artifacts signed with the `GPG_PRIVATE_KEY` key, and publishes the release. The HCP Terraform GitHub App then notifies the Terraform Registry ([`loadsmart/jumpcloud`](https://registry.terraform.io/providers/loadsmart/jumpcloud)).
+The merged release PR updates `CHANGELOG.md` and creates a draft GitHub release with its `v*` tag. The tag runs `.github/workflows/release.yml`, which uploads the GoReleaser artifacts signed with the `GPG_PRIVATE_KEY` key and publishes the release. The HCP Terraform GitHub App then notifies the Terraform Registry ([`loadsmart/jumpcloud`](https://registry.terraform.io/providers/loadsmart/jumpcloud)).
 
 Published versions are permanent: never move or delete a tag, release a fix instead. The signing key and the `loadsmart` namespace are managed in the HCP Terraform `Loadsmart` organization (Registry > Public namespaces).
 
