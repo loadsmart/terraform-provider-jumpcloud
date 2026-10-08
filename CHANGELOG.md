@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.3.0...v0.3.1) (2026-10-08)
+
+
+### Bug Fixes
+
+* correct OIDC application import and update ([#11](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/11)) ([d652b24](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/d652b248d2974db6583190f76330d47390b26e26))
+
 ## [0.3.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.2.0...v0.3.0) (2026-10-08)
 
 
