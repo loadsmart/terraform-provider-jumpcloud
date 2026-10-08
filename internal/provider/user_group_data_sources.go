@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 
 	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
 )
@@ -31,6 +32,12 @@ func (d *userGroupDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 			"id":          schema.StringAttribute{MarkdownDescription: "User group ID.", Computed: true},
 			"name":        schema.StringAttribute{MarkdownDescription: "Group name, matched exactly and case-sensitively.", Required: true},
 			"description": schema.StringAttribute{MarkdownDescription: "Group description.", Computed: true},
+			"email":       schema.StringAttribute{MarkdownDescription: "Group email address.", Computed: true},
+			"membership_method": schema.StringAttribute{
+				MarkdownDescription: "`STATIC` or `NOTSET` for static groups, `DYNAMIC_AUTOMATED` or `DYNAMIC_REVIEW_REQUIRED` for dynamic ones.",
+				Computed:            true,
+			},
+			"query": schema.StringAttribute{MarkdownDescription: "Membership rule as JSON for dynamic groups, empty for static groups.", Computed: true},
 		},
 	}
 }
@@ -56,13 +63,19 @@ func (d *userGroupDataSource) Read(ctx context.Context, req datasource.ReadReque
 		resp.Diagnostics.AddError("JumpCloud user group not found", fmt.Sprintf("Expected one user group named %q, found %d.", name, len(groups)))
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupModel(groups[0]))...)
+	// The list omits the membership fields, so read the group itself.
+	g, err := d.client.GetUserGroup(ctx, groups[0].ID)
+	if err != nil {
+		resp.Diagnostics.AddError("Error reading JumpCloud user group", err.Error())
+		return
+	}
+	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupModel(*g))...)
 }
 
 type userGroupsDataSource struct{ client *client.Client }
 
 type userGroupsModel struct {
-	Groups []userGroupModel `tfsdk:"groups"`
+	Groups []userGroupSummaryModel `tfsdk:"groups"`
 }
 
 func (d *userGroupsDataSource) Metadata(_ context.Context, req datasource.MetadataRequest, resp *datasource.MetadataResponse) {
@@ -71,7 +84,8 @@ func (d *userGroupsDataSource) Metadata(_ context.Context, req datasource.Metada
 
 func (d *userGroupsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with `regexall`.",
+		MarkdownDescription: "Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with `regexall`. " +
+			"JumpCloud's list leaves out membership details; use `jumpcloud_user_group` for a group's `membership_method` and `query`.",
 		Attributes: map[string]schema.Attribute{
 			"groups": schema.ListNestedAttribute{
 				MarkdownDescription: "User groups.",
@@ -81,6 +95,7 @@ func (d *userGroupsDataSource) Schema(_ context.Context, _ datasource.SchemaRequ
 						"id":          schema.StringAttribute{MarkdownDescription: "User group ID.", Computed: true},
 						"name":        schema.StringAttribute{MarkdownDescription: "Group name.", Computed: true},
 						"description": schema.StringAttribute{MarkdownDescription: "Group description.", Computed: true},
+						"email":       schema.StringAttribute{MarkdownDescription: "Group email address.", Computed: true},
 					},
 				},
 			},
@@ -98,9 +113,14 @@ func (d *userGroupsDataSource) Read(ctx context.Context, _ datasource.ReadReques
 		resp.Diagnostics.AddError("Error reading JumpCloud user groups", err.Error())
 		return
 	}
-	state := userGroupsModel{Groups: make([]userGroupModel, 0, len(groups))}
+	state := userGroupsModel{Groups: make([]userGroupSummaryModel, 0, len(groups))}
 	for _, g := range groups {
-		state.Groups = append(state.Groups, newUserGroupModel(g))
+		state.Groups = append(state.Groups, userGroupSummaryModel{
+			ID:          types.StringValue(g.ID),
+			Name:        types.StringValue(g.Name),
+			Description: types.StringValue(g.Description),
+			Email:       types.StringValue(g.Email),
+		})
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
 }

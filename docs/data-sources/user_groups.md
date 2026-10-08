@@ -3,12 +3,12 @@
 page_title: "jumpcloud_user_groups Data Source - jumpcloud"
 subcategory: ""
 description: |-
-  Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with regexall.
+  Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with regexall. JumpCloud's list leaves out membership details; use jumpcloud_user_group for a group's membership_method and query.
 ---
 
 # jumpcloud_user_groups (Data Source)
 
-Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with `regexall`.
+Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with `regexall`. JumpCloud's list leaves out membership details; use `jumpcloud_user_group` for a group's `membership_method` and `query`.
 
 ## Example Usage
 
@@ -36,5 +36,6 @@ locals {
 Read-Only:
 
 - `description` (String) Group description.
+- `email` (String) Group email address.
 - `id` (String) User group ID.
 - `name` (String) Group name.

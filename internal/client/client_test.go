@@ -69,7 +69,7 @@ func TestHeaders(t *testing.T) {
 	c, fake := newTestClient(t, "org-1", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusCreated, map[string]string{"id": "g1", "name": "devs"})
 	})
-	if _, err := c.CreateUserGroup(context.Background(), UserGroup{Name: "devs"}); err != nil {
+	if _, err := c.CreateUserGroup(context.Background(), UserGroupChange{Name: "devs"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,7 +240,7 @@ func TestRetryPolicy(t *testing.T) {
 		}, 5},
 		{"DELETE retries 504", http.StatusGatewayTimeout, func(c *Client) error { return c.DeleteUserGroup(ctx, "g1") }, 5},
 		{"POST does not retry 503", http.StatusServiceUnavailable, func(c *Client) error {
-			_, err := c.CreateUserGroup(ctx, UserGroup{Name: "x"})
+			_, err := c.CreateUserGroup(ctx, UserGroupChange{Name: "x"})
 			return err
 		}, 1},
 		{"GET does not retry 500", http.StatusInternalServerError, func(c *Client) error {
@@ -270,7 +270,7 @@ func TestEmptySuccessBodyIsAnError(t *testing.T) {
 	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
-	if g, err := c.CreateUserGroup(context.Background(), UserGroup{Name: "x"}); err == nil {
+	if g, err := c.CreateUserGroup(context.Background(), UserGroupChange{Name: "x"}); err == nil {
 		t.Fatalf("create = %+v, want an error instead of a group without an ID", g)
 	}
 }
@@ -349,7 +349,7 @@ func TestUserGroupWrites(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	g, err := c.CreateUserGroup(ctx, UserGroup{Name: "devs", Description: "d"})
+	g, err := c.CreateUserGroup(ctx, UserGroupChange{Name: "devs", Description: "d"})
 	if err != nil || g.ID != "g1" {
 		t.Fatalf("create = %+v, %v", g, err)
 	}
@@ -364,7 +364,7 @@ func TestUserGroupWrites(t *testing.T) {
 	}
 
 	assertRequests(t, fake.all(), []recorded{
-		{Method: "POST", Path: "/api/v2/usergroups", Body: `{"name":"devs","description":"d"}`},
+		{Method: "POST", Path: "/api/v2/usergroups", Body: `{"description":"d","name":"devs"}`},
 		{Method: "POST", Path: "/api/v2/usergroups/g1/members", Body: `{"op":"add","type":"user","id":"u1"}`},
 		{Method: "POST", Path: "/api/v2/usergroups/g1/members", Body: `{"op":"remove","type":"user","id":"u1"}`},
 		{Method: "DELETE", Path: "/api/v2/usergroups/g1"},
@@ -386,7 +386,7 @@ func TestUpdateUserGroupKeepsUnmanagedFields(t *testing.T) {
 		writeJSON(t, w, http.StatusOK, map[string]string{"id": "g1", "name": "new"})
 	})
 
-	g, err := c.UpdateUserGroup(context.Background(), "g1", UserGroup{Name: "new"})
+	g, err := c.UpdateUserGroup(context.Background(), "g1", UserGroupChange{Name: "new"})
 	if err != nil || g.Name != "new" {
 		t.Fatalf("update = %+v, %v", g, err)
 	}
@@ -575,5 +575,166 @@ func TestCreateOIDCApplicationDeletesAppWhenSettingsFail(t *testing.T) {
 	}
 	if !strings.Contains(reqs[1].Body, `"consent":"trusted"`) {
 		t.Errorf("settings body %s should set consent to trusted", reqs[1].Body)
+	}
+}
+
+func TestUserGroupQueryDSLHeader(t *testing.T) {
+	v2 := json.RawMessage(`{"filters":[{"field":"user.email","operation":"equals","value":"a@example.com"}]}`)
+	v1 := json.RawMessage(`{"queryType":"FilterQuery","filters":[]}`)
+	tests := []struct {
+		name    string
+		current map[string]any
+		change  UserGroupChange
+		want    string
+	}{
+		{"v2 rule", map[string]any{"name": "g", "membershipMethod": "STATIC"}, UserGroupChange{Name: "g", Rule: &MemberRule{Query: v2}}, "v2"},
+		{"static group", map[string]any{"name": "g", "membershipMethod": "STATIC", "memberQuery": nil}, UserGroupChange{Name: "g"}, ""},
+		{"rule removed", map[string]any{"name": "g", "membershipMethod": "DYNAMIC_AUTOMATED", "memberQuery": v2}, UserGroupChange{Name: "g"}, ""},
+		{"v1 rule kept", map[string]any{"name": "g", "membershipMethod": "STATIC", "memberQuery": v1}, UserGroupChange{Name: "g"}, ""},
+		{"v2 rule kept", map[string]any{"name": "g", "membershipMethod": "STATIC", "memberQuery": v2}, UserGroupChange{Name: "g"}, "v2"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, tt.current)
+			})
+			if _, err := c.UpdateUserGroup(context.Background(), "g1", tt.change); err != nil {
+				t.Fatal(err)
+			}
+			if got := fake.all()[1].Header.Get("x-query-dsl"); got != tt.want {
+				t.Errorf("PUT x-query-dsl = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusCreated, map[string]any{"id": "g1"})
+	})
+	if _, err := c.CreateUserGroup(context.Background(), UserGroupChange{Name: "g", Rule: &MemberRule{Query: v2}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.CreateUserGroup(context.Background(), UserGroupChange{Name: "g"}); err != nil {
+		t.Fatal(err)
+	}
+	reqs := fake.all()
+	if reqs[0].Header.Get("x-query-dsl") != "v2" || reqs[1].Header.Get("x-query-dsl") != "" {
+		t.Errorf("create headers = %q, %q; want v2 then none", reqs[0].Header.Get("x-query-dsl"), reqs[1].Header.Get("x-query-dsl"))
+	}
+}
+
+func TestCreateDynamicUserGroup(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusCreated, map[string]any{
+			"id": "g1", "name": "devs", "membershipMethod": "DYNAMIC_REVIEW_REQUIRED",
+			"memberQuery":           map[string]any{"filters": []any{}},
+			"memberQueryExemptions": []map[string]string{{"id": "u1", "type": "USER", "organizationId": "o1"}},
+			"attributes":            map[string]any{"ldapGroups": []map[string]string{{"name": "devs"}}},
+		})
+	})
+	email := "devs@example.com"
+	g, err := c.CreateUserGroup(context.Background(), UserGroupChange{
+		Name:  "devs",
+		Email: &email,
+		Rule: &MemberRule{
+			Query:          json.RawMessage(`{"filters":[]}`),
+			ReviewRequired: true,
+			Notify:         true,
+			ExemptUserIDs:  []string{"u1"},
+		},
+		Attributes: map[string]any{"sambaEnabled": true, "sudo": nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"attributes":{"sambaEnabled":true},"description":"","email":"devs@example.com","memberQuery":{"filters":[]},` +
+		`"memberQueryExemptions":[{"id":"u1","type":"USER"}],"memberSuggestionsNotify":true,"membershipMethod":"DYNAMIC_REVIEW_REQUIRED","name":"devs"}`
+	assertRequests(t, fake.all(), []recorded{{Method: "POST", Path: "/api/v2/usergroups", Body: want}})
+	if g.MembershipMethod != "DYNAMIC_REVIEW_REQUIRED" || !reflect.DeepEqual(g.ExemptUserIDs(), []string{"u1"}) ||
+		!reflect.DeepEqual(g.Attributes.LDAPGroups, []LDAPGroup{{Name: "devs"}}) {
+		t.Errorf("group = %+v", g)
+	}
+}
+
+func TestUpdateUserGroupRuleAndAttributes(t *testing.T) {
+	tests := []struct {
+		name    string
+		current map[string]any
+		change  UserGroupChange
+		want    map[string]any
+	}{
+		{
+			name: "dynamic group becomes static",
+			current: map[string]any{
+				"name": "g", "membershipMethod": "DYNAMIC_AUTOMATED", "memberQuery": map[string]any{"filters": []any{}},
+				"memberQueryExemptions": []map[string]string{{"id": "u1", "type": "USER", "organizationId": "o1"}},
+				"memberQueryErrorFlags": []string{}, "organizationObjectId": "x",
+			},
+			change: UserGroupChange{Name: "g"},
+			want: map[string]any{
+				"name": "g", "description": "", "membershipMethod": "STATIC", "memberQuery": nil, "memberQueryExemptions": []any{},
+			},
+		},
+		{
+			name: "attributes are merged and posix groups resent",
+			current: map[string]any{
+				"name": "g", "email": "old@example.com", "membershipMethod": "STATIC",
+				"attributes": map[string]any{
+					"posixGroups": []map[string]any{{"id": 5000, "name": "g"}},
+					"sudo":        map[string]bool{"enabled": true},
+					"radius":      map[string]any{"reply": []map[string]string{{"name": "a", "value": "b"}}},
+				},
+			},
+			change: UserGroupChange{Name: "g", Email: new(string), Attributes: map[string]any{
+				"sudo": nil, "ldapGroups": []LDAPGroup{}, "sambaEnabled": true,
+			}},
+			want: map[string]any{
+				"name": "g", "description": "", "email": "", "membershipMethod": "STATIC",
+				"attributes": map[string]any{
+					"posixGroups":  []any{map[string]any{"id": float64(5000), "name": "g"}},
+					"radius":       map[string]any{"reply": []any{map[string]any{"name": "a", "value": "b"}}},
+					"ldapGroups":   []any{},
+					"sambaEnabled": true,
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, tt.current)
+			})
+			if _, err := c.UpdateUserGroup(context.Background(), "g1", tt.change); err != nil {
+				t.Fatal(err)
+			}
+			var sent map[string]any
+			if err := json.Unmarshal([]byte(fake.all()[1].Body), &sent); err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(sent, tt.want) {
+				t.Fatalf("PUT body = %v\nwant %v", sent, tt.want)
+			}
+		})
+	}
+}
+
+func TestUserGroupMemberIDs(t *testing.T) {
+	const total = 150
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
+		page := []map[string]any{}
+		for i := skip; i < min(skip+pageSize, total); i++ {
+			page = append(page, map[string]any{"to": map[string]string{"id": fmt.Sprint("u", i), "type": "user"}})
+		}
+		writeJSON(t, w, http.StatusOK, page)
+	})
+	ids, err := c.UserGroupMemberIDs(context.Background(), "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != total || ids[0] != "u0" || ids[total-1] != "u149" {
+		t.Fatalf("ids = %v", ids)
+	}
+	if reqs := fake.all(); len(reqs) != 2 || reqs[0].Path != "/api/v2/usergroups/g1/members" {
+		t.Fatalf("requests = %+v", reqs)
 	}
 }

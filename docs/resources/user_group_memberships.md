@@ -3,12 +3,12 @@
 page_title: "jumpcloud_user_group_memberships Resource - jumpcloud"
 subcategory: ""
 description: |-
-  Manages a user's direct membership in a set of JumpCloud user groups. Memberships in groups not listed in group_ids are left alone, so other configurations and the admin console can add the same user to other groups. Use one resource per user, and do not list dynamic groups: their membership comes from their rules.
+  Manages a user's direct membership in a set of JumpCloud user groups. Memberships in groups not listed in group_ids are left alone, so other configurations and the admin console can add the same user to other groups. Use one resource per user. Dynamic groups cannot be listed: use membership_rule.include_user_ids on jumpcloud_user_group instead.
 ---
 
 # jumpcloud_user_group_memberships (Resource)
 
-Manages a user's direct membership in a set of JumpCloud user groups. Memberships in groups not listed in `group_ids` are left alone, so other configurations and the admin console can add the same user to other groups. Use one resource per user, and do not list dynamic groups: their membership comes from their rules.
+Manages a user's direct membership in a set of JumpCloud user groups. Memberships in groups not listed in `group_ids` are left alone, so other configurations and the admin console can add the same user to other groups. Use one resource per user. Dynamic groups cannot be listed: use `membership_rule.include_user_ids` on `jumpcloud_user_group` instead.
 
 ## Example Usage
 
@@ -44,7 +44,7 @@ Import is supported using the following syntax:
 The [`terraform import` command](https://developer.hashicorp.com/terraform/cli/commands/import) can be used, for example:
 
 ```shell
-# Import by user ID. The imported group_ids include every group the user belongs to directly,
-# including dynamic groups; remove those from group_ids before the first apply.
+# Import by user ID. The imported group_ids include every static group the user belongs to
+# directly; dynamic groups are skipped.
 terraform import jumpcloud_user_group_memberships.ana 5f1b881dc9e9a9b7e8d6c5a4
 ```

@@ -3,19 +3,46 @@
 page_title: "jumpcloud_user_group Resource - jumpcloud"
 subcategory: ""
 description: |-
-  Manages a JumpCloud user group. Only the name and description are managed; settings made elsewhere, such as LDAP attributes or a dynamic membership query, are kept on update.
+  Manages a JumpCloud user group. A group is static, with members added directly (see jumpcloud_user_group_members and jumpcloud_user_group_memberships), or dynamic, with members decided by membership_rule. Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console.
 ---
 
 # jumpcloud_user_group (Resource)
 
-Manages a JumpCloud user group. Only the name and description are managed; settings made elsewhere, such as LDAP attributes or a dynamic membership query, are kept on update.
+Manages a JumpCloud user group. A group is static, with members added directly (see `jumpcloud_user_group_members` and `jumpcloud_user_group_memberships`), or dynamic, with members decided by `membership_rule`. Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console.
 
 ## Example Usage
 
 ```terraform
+# A static group: members are added with jumpcloud_user_group_members or
+# jumpcloud_user_group_memberships.
 resource "jumpcloud_user_group" "platform" {
   name        = "platform-squad"
   description = "Platform squad members"
+}
+
+# A dynamic group: JumpCloud keeps its members in line with the rule.
+resource "jumpcloud_user_group" "engineering" {
+  name  = "engineering"
+  email = "engineering@example.com"
+
+  membership_rule = {
+    query = jsonencode({
+      filters = [
+        { field = "user.user_department", operation = "equals", value = "Engineering" },
+        { field = "user.user_state", operation = "equals", value = "ACTIVATED" },
+      ]
+    })
+    include_user_ids = [one(data.jumpcloud_users.cto.users).id]
+  }
+
+  sudo = {
+    enabled          = true
+    without_password = false
+  }
+}
+
+data "jumpcloud_users" "cto" {
+  filter = { email = "cto@example.com" }
 }
 ```
 
@@ -29,10 +56,60 @@ resource "jumpcloud_user_group" "platform" {
 ### Optional
 
 - `description` (String) Group description.
+- `email` (String) Group email address. Kept as is when not set; `""` clears it.
+- `ldap_groups` (List of String) LDAP group names. JumpCloud sets it to the group name on create and keeps it on rename. Kept as is when not set.
+- `membership_rule` (Attributes) Makes the group dynamic: JumpCloud adds and removes members by this rule within seconds of a change. Removing it makes the group static and keeps its current members as direct members. Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed. (see [below for nested schema](#nestedatt--membership_rule))
+- `posix_groups` (Attributes List) POSIX groups. JumpCloud does not allow changing or removing them once set, so a plan that does fails. To get different POSIX groups, run `terraform taint` on the group so the next apply replaces it. Kept as is when not set. (see [below for nested schema](#nestedatt--posix_groups))
+- `radius_reply` (Attributes List) RADIUS reply attributes sent for members. Kept as is when not set; `[]` removes them. (see [below for nested schema](#nestedatt--radius_reply))
+- `samba_enabled` (Boolean) Whether Samba authentication is enabled for the group in JumpCloud LDAP. Kept as is when not set.
+- `sudo` (Attributes) Sudo access for members on devices associated with the group. Kept as is when not set; `{ enabled = false, without_password = false }` removes it. (see [below for nested schema](#nestedatt--sudo))
 
 ### Read-Only
 
 - `id` (String) User group ID.
+- `membership_method` (String) How JumpCloud decides members: `STATIC` or `NOTSET` for static groups, `DYNAMIC_AUTOMATED` or `DYNAMIC_REVIEW_REQUIRED` for dynamic ones.
+- `rule_errors` (List of String) Problems JumpCloud found in the membership rule, such as `CYCLE` or `INVALID_GROUP_REFERENCE`.
+
+<a id="nestedatt--membership_rule"></a>
+### Nested Schema for `membership_rule`
+
+Required:
+
+- `query` (String) Rule as JSON in JumpCloud's v2 query format, built with `jsonencode`, for example `jsonencode({ filters = [{ field = "user.user_department", operation = "equals", value = "Engineering" }] })`. Filters are combined with AND. Fields include `user.email`, `user.username`, `user.user_department`, `user.user_job_title`, `user.user_location`, `user.user_company`, `user.employee_id`, and `user.user_state`. JumpCloud does not validate fields, so preview a rule with `POST /api/v2/search/query` before applying it.
+
+Optional:
+
+- `exclude_user_ids` (Set of String) IDs of users who are not members whether or not they match the rule.
+- `include_user_ids` (Set of String) IDs of users who are members whether or not they match the rule. If adding one fails, it shows under `exclude_user_ids` until an apply succeeds.
+- `notify_suggestions` (Boolean) Whether JumpCloud emails admins about suggested membership changes.
+- `review_required` (Boolean) Whether an admin must approve the rule's suggested changes in the admin console instead of JumpCloud applying them.
+
+
+<a id="nestedatt--posix_groups"></a>
+### Nested Schema for `posix_groups`
+
+Optional:
+
+- `id` (Number) POSIX group ID (GID). Must be set.
+- `name` (String) POSIX group name. Must be set.
+
+
+<a id="nestedatt--radius_reply"></a>
+### Nested Schema for `radius_reply`
+
+Optional:
+
+- `name` (String) Attribute name. Must be set.
+- `value` (String) Attribute value. Must be set.
+
+
+<a id="nestedatt--sudo"></a>
+### Nested Schema for `sudo`
+
+Optional:
+
+- `enabled` (Boolean) Whether members get sudo. Must be set.
+- `without_password` (Boolean) Whether sudo works without a password. Must be set.
 
 ## Import
 

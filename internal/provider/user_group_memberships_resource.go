@@ -41,8 +41,8 @@ func (r *userGroupMembershipsResource) Schema(_ context.Context, _ resource.Sche
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a user's direct membership in a set of JumpCloud user groups. " +
 			"Memberships in groups not listed in `group_ids` are left alone, so other configurations and the admin console " +
-			"can add the same user to other groups. Use one resource per user, and do not list dynamic groups: " +
-			"their membership comes from their rules.",
+			"can add the same user to other groups. Use one resource per user. Dynamic groups cannot be listed: " +
+			"use `membership_rule.include_user_ids` on `jumpcloud_user_group` instead.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "Same as `user_id`.",
@@ -88,20 +88,40 @@ func (r *userGroupMembershipsResource) Read(ctx context.Context, req resource.Re
 		return
 	}
 
-	current, err := r.client.UserGroupIDs(ctx, state.UserID.ValueString())
-	if errors.Is(err, client.ErrNotFound) {
-		resp.State.RemoveResource(ctx)
-		return
-	}
+	userID := state.UserID.ValueString()
+	current, err := r.client.UserGroupIDs(ctx, userID)
 	if err != nil {
 		resp.Diagnostics.AddError("Error reading JumpCloud user group memberships", err.Error())
 		return
 	}
+	if len(current) == 0 {
+		// memberof answers 200 with no groups for a user that does not exist.
+		_, err := r.client.GetUser(ctx, userID)
+		if errors.Is(err, client.ErrNotFound) {
+			resp.State.RemoveResource(ctx)
+			return
+		}
+		if err != nil {
+			resp.Diagnostics.AddError("Error reading JumpCloud user", err.Error())
+			return
+		}
+	}
 
-	// After import nothing is managed yet, so adopt every direct membership.
-	// Read never stores null, so null always means "just imported".
-	keep := current
-	if !state.GroupIDs.IsNull() {
+	var keep []string
+	if state.GroupIDs.IsNull() {
+		// After import nothing is managed yet, so adopt every direct membership of a
+		// static group. Read never stores null, so null always means "just imported".
+		for _, groupID := range current {
+			g, err := r.client.GetUserGroup(ctx, groupID)
+			if err != nil && !errors.Is(err, client.ErrNotFound) {
+				resp.Diagnostics.AddError("Error reading JumpCloud user group "+groupID, err.Error())
+				return
+			}
+			if err == nil && !g.Dynamic() {
+				keep = append(keep, groupID)
+			}
+		}
+	} else {
 		managed := setToStrings(ctx, state.GroupIDs, &resp.Diagnostics)
 		keep = slices.DeleteFunc(slices.Clone(current), func(id string) bool { return !slices.Contains(managed, id) })
 	}
@@ -147,10 +167,23 @@ func (r *userGroupMembershipsResource) ImportState(ctx context.Context, req reso
 // the goal, so neither is an error.
 func (r *userGroupMembershipsResource) change(ctx context.Context, userID string, add, remove []string, diags *diag.Diagnostics) (notAdded, notRemoved []string) {
 	for _, groupID := range add {
+		// JumpCloud accepts adding a user to a dynamic group but ignores it.
+		if g, err := r.client.GetUserGroup(ctx, groupID); err == nil && g.Dynamic() {
+			diags.AddError("Cannot add user to a dynamic JumpCloud user group", fmt.Sprintf(
+				"User group %s is dynamic, so its membership rule decides its members. "+
+					"Add user %s to membership_rule.include_user_ids of the group instead.", groupID, userID))
+			notAdded = append(notAdded, groupID)
+			continue
+		} else if err != nil && !errors.Is(err, client.ErrNotFound) {
+			diags.AddError("Error reading JumpCloud user group "+groupID, err.Error())
+			notAdded = append(notAdded, groupID)
+			continue
+		}
+
 		err := r.client.AddUserToGroup(ctx, groupID, userID)
 		switch {
 		case err == nil, isStatus(err, http.StatusConflict):
-		case errors.Is(err, client.ErrNotFound):
+		case errors.Is(err, client.ErrNotFound), isUserGroupNotFound(err):
 			diags.AddError("Error adding user to JumpCloud user group", fmt.Sprintf("User %s or user group %s does not exist.", userID, groupID))
 			notAdded = append(notAdded, groupID)
 		default:
@@ -159,25 +192,10 @@ func (r *userGroupMembershipsResource) change(ctx context.Context, userID string
 		}
 	}
 	for _, groupID := range remove {
-		if err := r.client.RemoveUserFromGroup(ctx, groupID, userID); err != nil && !errors.Is(err, client.ErrNotFound) {
+		if err := r.client.RemoveUserFromGroup(ctx, groupID, userID); err != nil && !errors.Is(err, client.ErrNotFound) && !isUserGroupNotFound(err) {
 			diags.AddError("Error removing user from JumpCloud user group "+groupID, err.Error())
 			notRemoved = append(notRemoved, groupID)
 		}
 	}
 	return notAdded, notRemoved
-}
-
-// without returns the items of a that are not in b.
-func without(a, b []string) []string {
-	return slices.DeleteFunc(slices.Clone(a), func(id string) bool { return slices.Contains(b, id) })
-}
-
-// stringSet converts to a set, never null: a nil slice becomes an empty set.
-func stringSet(ctx context.Context, items []string, diags *diag.Diagnostics) types.Set {
-	if items == nil {
-		items = []string{}
-	}
-	set, d := types.SetValueFrom(ctx, types.StringType, items)
-	diags.Append(d...)
-	return set
 }

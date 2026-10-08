@@ -132,6 +132,7 @@ func (p *jumpcloudProvider) Resources(_ context.Context) []func() resource.Resou
 	return []func() resource.Resource{
 		NewUserGroupResource,
 		NewUserGroupMembershipsResource,
+		NewUserGroupMembersResource,
 		NewOIDCApplicationResource,
 		NewApplicationAssociationResource,
 	}
