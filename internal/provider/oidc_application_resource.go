@@ -93,7 +93,16 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				})),
 			},
 			"token_endpoint_auth_method": schema.StringAttribute{
-				MarkdownDescription: "How the client authenticates at the token endpoint: `client_secret_basic`, `client_secret_post`, or `none` for a public client using PKCE.",
+				// JumpCloud only returns a client secret on create, so switching to or from a
+				// public client (none) creates a new application to get one.
+				PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplaceIf(
+					func(_ context.Context, req planmodifier.StringRequest, resp *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+						resp.RequiresReplace = (req.StateValue.ValueString() == "none") != (req.PlanValue.ValueString() == "none")
+					},
+					"Changing to or from `none` replaces the application, because JumpCloud only returns a client secret on create.",
+					"Changing to or from none replaces the application, because JumpCloud only returns a client secret on create.",
+				)},
+				MarkdownDescription: "How the client authenticates at the token endpoint: `client_secret_basic`, `client_secret_post`, or `none` for a public client using PKCE. Changing to or from `none` replaces the application.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString("client_secret_basic"),
@@ -101,7 +110,7 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 			"claims": schema.MapAttribute{
 				MarkdownDescription: "Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, " +
 					"even for the `email` and `profile` scopes, so map the ones the application needs, for example " +
-					"`{ email = \"email\", name = \"fullname\", groups = \"groups\" }`. `groups` lists the user groups bound to the application.",
+					"`{ email = \"email\", name = \"fullname\", groups = \"groups\" }`. `groups` lists the user groups bound to the application; JumpCloud sends it as a string, not a list, when the user is in exactly one of them.",
 				Optional:    true,
 				Computed:    true,
 				ElementType: types.StringType,
@@ -173,10 +182,8 @@ func (r *oidcApplicationResource) Read(ctx context.Context, req resource.ReadReq
 	var diags diag.Diagnostics
 	state.DisplayLabel = types.StringValue(app.DisplayLabel)
 	state.ShowInPortal = types.BoolValue(!app.Hidden)
-	state.RedirectURIs, diags = types.SetValueFrom(ctx, types.StringType, app.OIDC.RedirectURIs)
-	resp.Diagnostics.Append(diags...)
-	state.GrantTypes, diags = types.SetValueFrom(ctx, types.StringType, app.OIDC.GrantTypes)
-	resp.Diagnostics.Append(diags...)
+	state.RedirectURIs = stringSet(ctx, app.OIDC.RedirectURIs, &resp.Diagnostics)
+	state.GrantTypes = stringSet(ctx, app.OIDC.GrantTypes, &resp.Diagnostics)
 	state.Claims, diags = types.MapValueFrom(ctx, types.StringType, claims)
 	resp.Diagnostics.Append(diags...)
 	state.LoginURL = types.StringValue(app.OIDC.RelyingPartyURL)
@@ -196,7 +203,7 @@ func (r *oidcApplicationResource) Update(ctx context.Context, req resource.Updat
 
 	id := plan.ID.ValueString()
 	if !plan.DisplayLabel.Equal(state.DisplayLabel) {
-		if err := r.client.RenameApplication(ctx, id, plan.DisplayLabel.ValueString()); err != nil {
+		if err := r.client.RenameApplication(ctx, id, plan.DisplayLabel.ValueString(), !plan.ShowInPortal.ValueBool()); err != nil {
 			resp.Diagnostics.AddError("Error renaming JumpCloud OIDC application", err.Error())
 			return
 		}

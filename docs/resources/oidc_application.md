@@ -57,10 +57,10 @@ output "grafana_client_secret" {
 
 ### Optional
 
-- `claims` (Map of String) Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, even for the `email` and `profile` scopes, so map the ones the application needs, for example `{ email = "email", name = "fullname", groups = "groups" }`. `groups` lists the user groups bound to the application.
+- `claims` (Map of String) Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, even for the `email` and `profile` scopes, so map the ones the application needs, for example `{ email = "email", name = "fullname", groups = "groups" }`. `groups` lists the user groups bound to the application; JumpCloud sends it as a string, not a list, when the user is in exactly one of them.
 - `grant_types` (Set of String) Allowed grant types: `authorization_code` and `refresh_token`. JumpCloud supports no others.
 - `show_in_portal` (Boolean) Whether the application appears in users' JumpCloud portal. Hidden applications still accept sign-ins.
-- `token_endpoint_auth_method` (String) How the client authenticates at the token endpoint: `client_secret_basic`, `client_secret_post`, or `none` for a public client using PKCE.
+- `token_endpoint_auth_method` (String) How the client authenticates at the token endpoint: `client_secret_basic`, `client_secret_post`, or `none` for a public client using PKCE. Changing to or from `none` replaces the application.
 
 ### Read-Only
 

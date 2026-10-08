@@ -29,6 +29,7 @@ type fakeJumpCloud struct {
 	apps    map[string]client.Application
 	sso     map[string]fakeSSO
 	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
+	renames int                 // v1 PUT /api/applications/{id} calls
 }
 
 func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {

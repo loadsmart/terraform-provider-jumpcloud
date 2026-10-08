@@ -95,6 +95,7 @@ func (f *fakeJumpCloud) renameApp(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		a.DisplayLabel = body.DisplayLabel
 		f.apps[a.ID] = a
+		f.renames++
 	}
 	f.mu.Unlock()
 	if !ok {
@@ -133,7 +134,9 @@ func (f *fakeJumpCloud) createSSO(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 
 	oidc := maps.Clone(body.OIDC)
-	oidc["clientSecret"] = "secret-" + id
+	if oidc["tokenEndpointAuthMethod"] != "none" {
+		oidc["clientSecret"] = "secret-" + id
+	}
 	writeFake(w, http.StatusOK, map[string]any{"type": "oidc", "hidden": body.Hidden, "oidc": oidc})
 }
 

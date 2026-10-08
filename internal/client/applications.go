@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -113,8 +114,11 @@ type ssoSettings struct {
 // app is deleted so a retry starts clean.
 func (c *Client) CreateOIDCApplication(ctx context.Context, a OIDCApplication) (*OIDCApplication, error) {
 	var created Application
-	if err := c.do(ctx, http.MethodPost, "/api/applications", nil, oidcAppBody(a.DisplayLabel), &created); err != nil {
+	if err := c.do(ctx, http.MethodPost, "/api/applications", nil, oidcAppBody(a.DisplayLabel, a.Hidden), &created); err != nil {
 		return nil, err
+	}
+	if created.ID == "" {
+		return nil, errors.New("jumpcloud: POST /api/applications returned no application ID")
 	}
 
 	settings := a.OIDC
@@ -122,21 +126,31 @@ func (c *Client) CreateOIDCApplication(ctx context.Context, a OIDCApplication) (
 	body := map[string]any{"type": oidcTemplate, "hidden": a.Hidden, "oidc": settings}
 	var sso ssoSettings
 	if err := c.do(ctx, http.MethodPost, ssoPath(created.ID), nil, body, &sso); err != nil {
-		if delErr := c.DeleteApplication(ctx, created.ID); delErr != nil {
-			return nil, fmt.Errorf("%w (and deleting the half-created application %s failed: %v)", err, created.ID, delErr)
+		err = fmt.Errorf("configuring OIDC for new application %s: %w", created.ID, err)
+		// Clean up even if Terraform was interrupted, so a retry starts clean.
+		if delErr := c.DeleteApplication(context.WithoutCancel(ctx), created.ID); delErr != nil {
+			return nil, fmt.Errorf("%w (and deleting the half-created application failed: %v)", err, delErr)
 		}
 		return nil, err
 	}
 	return &OIDCApplication{ID: created.ID, DisplayLabel: a.DisplayLabel, Hidden: sso.Hidden, OIDC: sso.OIDC}, nil
 }
 
-// GetOIDCApplication returns ErrNotFound when the app or its OIDC settings do not exist.
+// ErrNotOIDC is returned when an application exists but has no OIDC settings, such as a
+// SAML or bookmark application.
+var ErrNotOIDC = errors.New("jumpcloud: application has no OIDC settings (not an OIDC application?)")
+
+// GetOIDCApplication returns ErrNotFound when the app does not exist and ErrNotOIDC when
+// it exists without OIDC settings.
 func (c *Client) GetOIDCApplication(ctx context.Context, id string) (*OIDCApplication, error) {
 	app, err := c.GetApplication(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	sso, err := get[ssoSettings](ctx, c, ssoPath(id))
+	if errors.Is(err, ErrNotFound) {
+		return nil, fmt.Errorf("application %s: %w", id, ErrNotOIDC)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +158,9 @@ func (c *Client) GetOIDCApplication(ctx context.Context, id string) (*OIDCApplic
 }
 
 // RenameApplication changes the label shown in the console and user portal. It does not
-// touch the OIDC settings.
-func (c *Client) RenameApplication(ctx context.Context, id, displayLabel string) error {
-	return c.do(ctx, http.MethodPut, "/api/applications/"+url.PathEscape(id), nil, oidcAppBody(displayLabel), nil)
+// touch the OIDC settings. The v1 PUT resets fields it is not sent, so hidden is resent.
+func (c *Client) RenameApplication(ctx context.Context, id, displayLabel string, hidden bool) error {
+	return c.do(ctx, http.MethodPut, "/api/applications/"+url.PathEscape(id), nil, oidcAppBody(displayLabel, hidden), nil)
 }
 
 // UpdateOIDCSettings changes the managed OIDC fields. PUT replaces the whole OIDC object,
@@ -180,14 +194,14 @@ func (c *Client) DeleteApplication(ctx context.Context, id string) error {
 // oidcAppBody is the v1 create and rename body. ssoUrl must be absent: JumpCloud rejects
 // it for OIDC apps. active must be sent on every write, or sign-ins fail with "JumpCloud
 // could not connect to your application".
-func oidcAppBody(displayLabel string) map[string]any {
+func oidcAppBody(displayLabel string, hidden bool) map[string]any {
 	return map[string]any{
 		"active":       true,
 		"name":         oidcTemplate,
 		"displayName":  "OpenID Connect",
 		"displayLabel": displayLabel,
 		"config":       map[string]any{},
-		"sso":          map[string]string{"type": oidcTemplate},
+		"sso":          map[string]any{"type": oidcTemplate, "hidden": hidden},
 	}
 }
 

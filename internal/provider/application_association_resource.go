@@ -80,7 +80,13 @@ func (r *applicationAssociationResource) Create(ctx context.Context, req resourc
 
 	// An existing association (409) already matches the goal.
 	err := r.client.AddApplicationAssociation(ctx, plan.ApplicationID.ValueString(), plan.Type.ValueString(), plan.TargetID.ValueString())
-	if err != nil && !isStatus(err, http.StatusConflict) {
+	switch {
+	case err == nil, isStatus(err, http.StatusConflict):
+	case errors.Is(err, client.ErrNotFound):
+		resp.Diagnostics.AddError("Error creating JumpCloud application association", fmt.Sprintf(
+			"Application %s or %s %s does not exist.", plan.ApplicationID.ValueString(), plan.Type.ValueString(), plan.TargetID.ValueString()))
+		return
+	default:
 		resp.Diagnostics.AddError("Error creating JumpCloud application association", err.Error())
 		return
 	}

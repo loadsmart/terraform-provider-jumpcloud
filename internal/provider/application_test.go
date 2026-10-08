@@ -9,21 +9,49 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
+
+	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
 )
 
 func TestOIDCApplicationResource(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	const addr = "jumpcloud_oidc_application.test"
-	updated := f.providerConfig() + `
+	config := func(label, method, claims string) string {
+		return f.providerConfig() + fmt.Sprintf(`
 resource "jumpcloud_oidc_application" "test" {
-  display_label              = "grafana-production"
+  display_label              = %q
   show_in_portal             = true
   redirect_uris              = ["https://grafana.example.com/login/generic_oauth", "https://grafana.example.com/alt"]
   login_url                  = "https://grafana.example.com"
-  token_endpoint_auth_method = "client_secret_post"
-  claims                     = { groups = "groups" }
-}`
-	var firstID string
+  token_endpoint_auth_method = %q
+  %s
+}`, label, method, claims)
+	}
+	var id string // current application ID
+	sameID := resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { return expect(v, id) })
+	newID := resource.TestCheckResourceAttrWith(addr, "id", func(v string) error {
+		if v == id {
+			return errors.New("expected a new application")
+		}
+		id = v
+		return nil
+	})
+	renames := func(want int) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			if f.renames != want {
+				return fmt.Errorf("renames = %d, want %d", f.renames, want)
+			}
+			return nil
+		}
+	}
+	jumpcloud := func(check func(a client.Application, sso fakeSSO) error) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			a, sso, _ := f.app(id)
+			return check(a, sso)
+		}
+	}
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories,
@@ -42,34 +70,32 @@ resource "jumpcloud_oidc_application" "test" {
   login_url     = "https://grafana.example.com"
 }`,
 				Check: resource.ComposeAggregateTestCheckFunc(
+					newID,
 					resource.TestCheckResourceAttr(addr, "show_in_portal", "false"),
 					resource.TestCheckResourceAttr(addr, "token_endpoint_auth_method", "client_secret_basic"),
 					resource.TestCheckResourceAttr(addr, "grant_types.#", "2"),
 					resource.TestCheckResourceAttr(addr, "claims.%", "0"),
-					resource.TestCheckResourceAttrWith(addr, "id", func(id string) error {
-						firstID = id
-						a, sso, _ := f.app(id)
+					jumpcloud(func(a client.Application, sso fakeSSO) error {
 						if a.Name != "oidc" || a.DisplayLabel != "grafana-qa" || !sso.Hidden || sso.OIDC["consent"] != "trusted" {
 							return fmt.Errorf("JumpCloud has %+v %+v", a, sso)
 						}
 						return nil
 					}),
-					resource.TestCheckResourceAttrWith(addr, "client_id", func(v string) error { return expect(v, "client-"+firstID) }),
-					resource.TestCheckResourceAttrWith(addr, "client_secret", func(v string) error { return expect(v, "secret-"+firstID) }),
+					resource.TestCheckResourceAttrWith(addr, "client_id", func(v string) error { return expect(v, "client-"+id) }),
+					resource.TestCheckResourceAttrWith(addr, "client_secret", func(v string) error { return expect(v, "secret-"+id) }),
 				),
 			},
 			{
-				Config: updated,
+				// Label and settings change together.
+				Config: config("grafana-production", "client_secret_post", `claims = { groups = "groups" }`),
 				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr(addr, "display_label", "grafana-production"),
+					sameID,
+					renames(1),
 					resource.TestCheckResourceAttr(addr, "redirect_uris.#", "2"),
 					resource.TestCheckResourceAttr(addr, "claims.groups", "groups"),
-					resource.TestCheckResourceAttrWith(addr, "id", func(id string) error { return expect(id, firstID) }),
-					resource.TestCheckResourceAttrWith(addr, "client_id", func(v string) error { return expect(v, "client-"+firstID) }),
 					// The secret only comes back on create, so it must survive updates in state.
-					resource.TestCheckResourceAttrWith(addr, "client_secret", func(v string) error { return expect(v, "secret-"+firstID) }),
-					func(*terraform.State) error {
-						a, sso, _ := f.app(firstID)
+					resource.TestCheckResourceAttrWith(addr, "client_secret", func(v string) error { return expect(v, "secret-"+id) }),
+					jumpcloud(func(a client.Application, sso fakeSSO) error {
 						want := []any{map[string]any{"name": "groups", "value": "groups"}}
 						switch {
 						case a.DisplayLabel != "grafana-production", sso.Hidden:
@@ -80,7 +106,36 @@ resource "jumpcloud_oidc_application" "test" {
 							return errors.New("update dropped a setting the provider does not manage")
 						}
 						return nil
-					},
+					}),
+				),
+			},
+			{
+				// Settings only: removing claims clears them, without a rename.
+				Config: config("grafana-production", "client_secret_post", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					sameID,
+					renames(1),
+					resource.TestCheckResourceAttr(addr, "claims.%", "0"),
+					jumpcloud(func(_ client.Application, sso fakeSSO) error {
+						if !reflect.DeepEqual(sso.OIDC["dynamicClaims"], []any{}) {
+							return fmt.Errorf("claims = %#v, want an empty list", sso.OIDC["dynamicClaims"])
+						}
+						return nil
+					}),
+				),
+			},
+			{
+				// Label only.
+				Config: config("grafana", "client_secret_post", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					sameID,
+					renames(2),
+					jumpcloud(func(a client.Application, sso fakeSSO) error {
+						if a.DisplayLabel != "grafana" || sso.Hidden {
+							return fmt.Errorf("JumpCloud has %+v %+v", a, sso)
+						}
+						return nil
+					}),
 				),
 			},
 			{
@@ -90,21 +145,54 @@ resource "jumpcloud_oidc_application" "test" {
 				ImportStateVerifyIgnore: []string{"client_secret"},
 			},
 			{
+				// Switching to a public client replaces the app; public clients have no secret.
+				Config: config("grafana", "none", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					newID,
+					resource.TestCheckResourceAttr(addr, "client_secret", ""),
+					resource.TestCheckResourceAttrWith(addr, "client_id", func(v string) error { return expect(v, "client-"+id) }),
+				),
+			},
+			{
+				// Switching back replaces it again to get a secret.
+				Config: config("grafana", "client_secret_basic", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					newID,
+					resource.TestCheckResourceAttrWith(addr, "client_secret", func(v string) error { return expect(v, "secret-"+id) }),
+				),
+			},
+			{
 				// An application deleted outside Terraform is created again.
 				PreConfig: func() {
 					f.mu.Lock()
-					delete(f.apps, firstID)
+					delete(f.apps, id)
 					f.mu.Unlock()
 				},
-				Config: updated,
-				Check: resource.TestCheckResourceAttrWith(addr, "id", func(id string) error {
-					if id == firstID {
-						return errors.New("expected a new application")
-					}
-					return nil
-				}),
+				Config: config("grafana", "client_secret_basic", ""),
+				Check:  newID,
 			},
 		},
+	})
+}
+
+func TestOIDCApplicationImportRejectsOtherApps(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	saml := f.addApp("AWS", "saml2")
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{{
+			Config: f.providerConfig() + `
+resource "jumpcloud_oidc_application" "test" {
+  display_label = "AWS"
+  redirect_uris = ["https://example.com/callback"]
+  login_url     = "https://example.com"
+}`,
+			ResourceName:  "jumpcloud_oidc_application.test",
+			ImportState:   true,
+			ImportStateId: saml,
+			ExpectError:   regexp.MustCompile(`no OIDC settings`),
+		}},
 	})
 }
 
@@ -158,6 +246,45 @@ resource "jumpcloud_application_association" "test" {
 				},
 			},
 			{ResourceName: addr, ImportState: true, ImportStateId: "only/two", ExpectError: regexp.MustCompile(`Invalid import ID`)},
+		},
+	})
+}
+
+func TestApplicationAssociationForUser(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	app := f.addApp("grafana", "oidc")
+	f.mu.Lock()
+	f.assocs[app+"/user"] = []string{"u1"} // already associated before Terraform runs
+	f.mu.Unlock()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		CheckDestroy: func(*terraform.State) error {
+			if f.associated(app, "user", "u1") {
+				return errors.New("association left after destroy")
+			}
+			return nil
+		},
+		Steps: []resource.TestStep{
+			{
+				// An existing association (409) is adopted.
+				Config: f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_application_association" "test" {
+  application_id = %q
+  type           = "user"
+  target_id      = "u1"
+}`, app),
+				Check: resource.TestCheckResourceAttr("jumpcloud_application_association.test", "id", app+"/user/u1"),
+			},
+			{
+				Config: f.providerConfig() + `
+resource "jumpcloud_application_association" "test" {
+  application_id = "missing"
+  type           = "user"
+  target_id      = "u1"
+}`,
+				ExpectError: regexp.MustCompile(`Application missing or user u1 does not exist`),
+			},
 		},
 	})
 }

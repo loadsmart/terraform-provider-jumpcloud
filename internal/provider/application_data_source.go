@@ -54,7 +54,7 @@ func (d *applicationDataSource) Read(ctx context.Context, req datasource.ReadReq
 		return
 	}
 	if len(apps) != 1 {
-		resp.Diagnostics.AddError("JumpCloud application not found", fmt.Sprintf("Expected one application labeled %q, found %d.", label, len(apps)))
+		resp.Diagnostics.AddError("Expected exactly one JumpCloud application", fmt.Sprintf("Expected one application labeled %q, found %d.", label, len(apps)))
 		return
 	}
 	state.ID = types.StringValue(apps[0].ID)
