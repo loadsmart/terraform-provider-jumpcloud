@@ -196,6 +196,34 @@ resource "jumpcloud_oidc_application" "test" {
 	})
 }
 
+// Applications created in the console have an empty displayLabel, so importing one used
+// to store an empty label and plan a change that was not real.
+func TestOIDCApplicationImportConsoleCreatedApp(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	id := f.addConsoleOIDCApp()
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{{
+			Config: f.providerConfig() + `
+resource "jumpcloud_oidc_application" "test" {
+  display_label              = "OpenID Connect"
+  show_in_portal             = true
+  redirect_uris              = ["https://example.com"]
+  login_url                  = "https://example.com"
+  grant_types                = ["authorization_code"]
+  token_endpoint_auth_method = "client_secret_post"
+}`,
+			ResourceName:  "jumpcloud_oidc_application.test",
+			ImportState:   true,
+			ImportStateId: id,
+			ImportStateCheck: func(states []*terraform.InstanceState) error {
+				return expect(states[0].Attributes["display_label"], "OpenID Connect")
+			},
+		}},
+	})
+}
+
 func TestApplicationAssociationResource(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	app := f.addApp("grafana", "oidc")

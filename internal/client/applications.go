@@ -18,6 +18,16 @@ type Application struct {
 	SSOURL       string `json:"ssoUrl"`
 }
 
+// Label is the name shown in the admin console and the user portal. Applications created
+// in the console have an empty displayLabel, and JumpCloud falls back to displayName to
+// render them; the v1 API returns the empty string as-is, so the fallback is applied here.
+func (a Application) Label() string {
+	if a.DisplayLabel != "" {
+		return a.DisplayLabel
+	}
+	return a.DisplayName
+}
+
 // Association target types accepted by the application associations endpoint.
 const (
 	TargetUser      = "user"
@@ -154,7 +164,7 @@ func (c *Client) GetOIDCApplication(ctx context.Context, id string) (*OIDCApplic
 	if err != nil {
 		return nil, err
 	}
-	return &OIDCApplication{ID: id, DisplayLabel: app.DisplayLabel, Hidden: sso.Hidden, OIDC: sso.OIDC}, nil
+	return &OIDCApplication{ID: id, DisplayLabel: app.Label(), Hidden: sso.Hidden, OIDC: sso.OIDC}, nil
 }
 
 // RenameApplication changes the label shown in the console and user portal. It does not

@@ -26,6 +26,26 @@ func (f *fakeJumpCloud) addApp(label, template string) string {
 	return id
 }
 
+// addConsoleOIDCApp mimics an app created in the admin console: JumpCloud leaves
+// displayLabel empty and shows displayName instead.
+func (f *fakeJumpCloud) addConsoleOIDCApp() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	id := fmt.Sprintf("a%d", f.nextID)
+	f.apps[id] = client.Application{ID: id, Name: "oidc", DisplayName: "OpenID Connect"}
+	f.sso[id] = fakeSSO{OIDC: map[string]any{
+		"clientId":                "client-" + id,
+		"redirectUris":            []any{"https://example.com"},
+		"grantTypes":              []any{"authorization_code"},
+		"relyingPartyUrl":         "https://example.com",
+		"tokenEndpointAuthMethod": "client_secret_post",
+		"dynamicClaims":           []any{},
+		"accessTokenLifespan":     "1h",
+	}}
+	return id
+}
+
 func (f *fakeJumpCloud) app(id string) (client.Application, fakeSSO, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
