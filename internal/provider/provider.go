@@ -139,7 +139,6 @@ func (p *jumpcloudProvider) DataSources(_ context.Context) []func() datasource.D
 	return []func() datasource.DataSource{
 		NewUserGroupDataSource,
 		NewUserGroupsDataSource,
-		NewUserDataSource,
 		NewUsersDataSource,
 	}
 }

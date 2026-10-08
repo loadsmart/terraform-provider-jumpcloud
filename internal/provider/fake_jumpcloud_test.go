@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -159,7 +158,7 @@ func (f *fakeJumpCloud) listGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Unlock()
 	slices.SortFunc(out, func(a, b client.UserGroup) int { return strings.Compare(a.ID, b.ID) })
-	writeFake(w, http.StatusOK, page(r, out))
+	writeFake(w, http.StatusOK, out)
 }
 
 func (f *fakeJumpCloud) changeMember(w http.ResponseWriter, r *http.Request) {
@@ -207,7 +206,7 @@ func (f *fakeJumpCloud) memberOf(w http.ResponseWriter, r *http.Request) {
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 		return
 	}
-	writeFake(w, http.StatusOK, page(r, out))
+	writeFake(w, http.StatusOK, out)
 }
 
 // listUsers supports the filter[i]=field:$eq:value form the client sends.
@@ -233,16 +232,7 @@ func (f *fakeJumpCloud) listUsers(w http.ResponseWriter, r *http.Request) {
 			out = append(out, u)
 		}
 	}
-	writeFake(w, http.StatusOK, map[string]any{"results": page(r, out), "totalCount": len(out)})
-}
-
-func page[T any](r *http.Request, items []T) []T {
-	skip, _ := strconv.Atoi(r.URL.Query().Get("skip"))
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	if skip >= len(items) {
-		return []T{}
-	}
-	return items[skip:min(skip+limit, len(items))]
+	writeFake(w, http.StatusOK, map[string]any{"results": out})
 }
 
 func writeFake(w http.ResponseWriter, status int, body any) {

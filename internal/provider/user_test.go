@@ -2,7 +2,6 @@ package provider
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -92,32 +91,26 @@ func TestUserDataSources(t *testing.T) {
 	})
 	f.addUser(client.User{ID: "u2", Email: "bo@loadsmart.com", Department: "Sales"})
 
-	lookup := func(email string) string {
-		return f.providerConfig() + fmt.Sprintf(`data "jumpcloud_user" "test" { email = %q }`, email)
-	}
-
+	const eng = "data.jumpcloud_users.engineering"
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories,
-		Steps: []resource.TestStep{
-			{
-				Config: lookup("ana@loadsmart.com") + `
+		Steps: []resource.TestStep{{
+			Config: f.providerConfig() + `
 data "jumpcloud_users" "engineering" {
   filter = { department = "Engineering" }
 }
 
 data "jumpcloud_users" "all" {}`,
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.jumpcloud_user.test", "id", "u1"),
-					resource.TestCheckResourceAttr("data.jumpcloud_user.test", "username", "ana"),
-					resource.TestCheckResourceAttr("data.jumpcloud_user.test", "state", "ACTIVATED"),
-					resource.TestCheckResourceAttr("data.jumpcloud_user.test", "job_title", "SRE"),
-					resource.TestCheckResourceAttr("data.jumpcloud_user.test", "attributes.team", "platform"),
-					resource.TestCheckResourceAttr("data.jumpcloud_users.engineering", "users.#", "1"),
-					resource.TestCheckResourceAttr("data.jumpcloud_users.engineering", "users.0.email", "ana@loadsmart.com"),
-					resource.TestCheckResourceAttr("data.jumpcloud_users.all", "users.#", "2"),
-				),
-			},
-			{Config: lookup("nobody@loadsmart.com"), ExpectError: regexp.MustCompile(`found 0`)},
-		},
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr(eng, "users.#", "1"),
+				resource.TestCheckResourceAttr(eng, "users.0.id", "u1"),
+				resource.TestCheckResourceAttr(eng, "users.0.email", "ana@loadsmart.com"),
+				resource.TestCheckResourceAttr(eng, "users.0.username", "ana"),
+				resource.TestCheckResourceAttr(eng, "users.0.state", "ACTIVATED"),
+				resource.TestCheckResourceAttr(eng, "users.0.job_title", "SRE"),
+				resource.TestCheckResourceAttr(eng, "users.0.attributes.team", "platform"),
+				resource.TestCheckResourceAttr("data.jumpcloud_users.all", "users.#", "2"),
+			),
+		}},
 	})
 }

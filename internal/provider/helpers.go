@@ -35,7 +35,6 @@ func setToStrings(ctx context.Context, s types.Set, diags *diag.Diagnostics) []s
 	return out
 }
 
-// userGroupModel is shared by the user group resource and both group data sources.
 type userGroupModel struct {
 	ID          types.String `tfsdk:"id"`
 	Name        types.String `tfsdk:"name"`
@@ -47,34 +46,5 @@ func newUserGroupModel(g client.UserGroup) userGroupModel {
 		ID:          types.StringValue(g.ID),
 		Name:        types.StringValue(g.Name),
 		Description: types.StringValue(g.Description),
-	}
-}
-
-// userModel is shared by the user and users data sources.
-type userModel struct {
-	ID         types.String `tfsdk:"id"`
-	Email      types.String `tfsdk:"email"`
-	Username   types.String `tfsdk:"username"`
-	State      types.String `tfsdk:"state"`
-	Department types.String `tfsdk:"department"`
-	JobTitle   types.String `tfsdk:"job_title"`
-	Attributes types.Map    `tfsdk:"attributes"`
-}
-
-func newUserModel(ctx context.Context, u client.User, diags *diag.Diagnostics) userModel {
-	attrs := make(map[string]string, len(u.Attributes))
-	for _, a := range u.Attributes {
-		attrs[a.Name] = a.Value
-	}
-	attributes, d := types.MapValueFrom(ctx, types.StringType, attrs)
-	diags.Append(d...)
-	return userModel{
-		ID:         types.StringValue(u.ID),
-		Email:      types.StringValue(u.Email),
-		Username:   types.StringValue(u.Username),
-		State:      types.StringValue(u.State),
-		Department: types.StringValue(u.Department),
-		JobTitle:   types.StringValue(u.JobTitle),
-		Attributes: attributes,
 	}
 }

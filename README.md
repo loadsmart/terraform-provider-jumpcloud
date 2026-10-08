@@ -5,7 +5,7 @@ Terraform provider for managing JumpCloud user groups, group memberships, and ap
 This provider is in early development. It currently supports:
 
 - Resources: `jumpcloud_user_group`, `jumpcloud_user_group_memberships`
-- Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_user`, `jumpcloud_users`
+- Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_users`
 
 See [`docs/`](docs/) for arguments and examples.
 

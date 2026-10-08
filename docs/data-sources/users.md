@@ -3,12 +3,12 @@
 page_title: "jumpcloud_users Data Source - jumpcloud"
 subcategory: ""
 description: |-
-  Lists JumpCloud users, optionally filtered by exact field values.
+  Lists JumpCloud users, optionally filtered by exact field values. To look up one user, filter by email and use one(data.jumpcloud_users.<name>.users).
 ---
 
 # jumpcloud_users (Data Source)
 
-Lists JumpCloud users, optionally filtered by exact field values.
+Lists JumpCloud users, optionally filtered by exact field values. To look up one user, filter by `email` and use `one(data.jumpcloud_users.<name>.users)`.
 
 ## Example Usage
 
