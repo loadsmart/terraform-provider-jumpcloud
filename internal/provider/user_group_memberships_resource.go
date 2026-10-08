@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 
@@ -39,8 +40,9 @@ func (r *userGroupMembershipsResource) Metadata(_ context.Context, req resource.
 func (r *userGroupMembershipsResource) Schema(_ context.Context, _ resource.SchemaRequest, resp *resource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a user's direct membership in a set of JumpCloud user groups. " +
-			"Memberships in groups not listed in `group_ids` are left alone, so other configurations, the admin console, " +
-			"and dynamic groups can add the same user to other groups. Use one resource per user.",
+			"Memberships in groups not listed in `group_ids` are left alone, so other configurations and the admin console " +
+			"can add the same user to other groups. Use one resource per user, and do not list dynamic groups: " +
+			"their membership comes from their rules.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "Same as `user_id`.",
@@ -73,8 +75,9 @@ func (r *userGroupMembershipsResource) Create(ctx context.Context, req resource.
 		return
 	}
 
-	r.change(ctx, plan.UserID.ValueString(), groups, nil, &resp.Diagnostics)
+	notAdded, _ := r.change(ctx, plan.UserID.ValueString(), groups, nil, &resp.Diagnostics)
 	plan.ID = plan.UserID
+	plan.GroupIDs = stringSet(ctx, without(groups, notAdded), &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -96,14 +99,13 @@ func (r *userGroupMembershipsResource) Read(ctx context.Context, req resource.Re
 	}
 
 	// After import nothing is managed yet, so adopt every direct membership.
+	// Read never stores null, so null always means "just imported".
 	keep := current
 	if !state.GroupIDs.IsNull() {
 		managed := setToStrings(ctx, state.GroupIDs, &resp.Diagnostics)
-		keep = slices.DeleteFunc(current, func(id string) bool { return !slices.Contains(managed, id) })
+		keep = slices.DeleteFunc(slices.Clone(current), func(id string) bool { return !slices.Contains(managed, id) })
 	}
-	groups, diags := types.SetValueFrom(ctx, types.StringType, keep)
-	resp.Diagnostics.Append(diags...)
-	state.GroupIDs = groups
+	state.GroupIDs = stringSet(ctx, keep, &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
 }
 
@@ -117,13 +119,10 @@ func (r *userGroupMembershipsResource) Update(ctx context.Context, req resource.
 		return
 	}
 
-	add := slices.DeleteFunc(slices.Clone(want), func(id string) bool { return slices.Contains(have, id) })
-	remove := slices.DeleteFunc(slices.Clone(have), func(id string) bool { return slices.Contains(want, id) })
-	// Groups that failed to be removed stay in state so the next apply retries them.
-	kept := r.change(ctx, plan.UserID.ValueString(), add, remove, &resp.Diagnostics)
-	groups, diags := types.SetValueFrom(ctx, types.StringType, append(want, kept...))
-	resp.Diagnostics.Append(diags...)
-	plan.GroupIDs = groups
+	// State records what JumpCloud has: failed adds are left out and failed removes stay
+	// in, so the next apply retries both.
+	notAdded, notRemoved := r.change(ctx, plan.UserID.ValueString(), without(want, have), without(have, want), &resp.Diagnostics)
+	plan.GroupIDs = stringSet(ctx, append(without(want, notAdded), notRemoved...), &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -143,13 +142,20 @@ func (r *userGroupMembershipsResource) ImportState(ctx context.Context, req reso
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, path.Root("user_id"), req.ID)...)
 }
 
-// change applies membership changes and returns the groups it failed to remove. Adding
-// an existing membership (409) or removing a missing one (404) already matches the goal,
-// so neither is an error.
-func (r *userGroupMembershipsResource) change(ctx context.Context, userID string, add, remove []string, diags *diag.Diagnostics) (notRemoved []string) {
+// change applies membership changes and returns the groups it failed to add or remove.
+// Adding an existing membership (409) or removing a missing one (404) already matches
+// the goal, so neither is an error.
+func (r *userGroupMembershipsResource) change(ctx context.Context, userID string, add, remove []string, diags *diag.Diagnostics) (notAdded, notRemoved []string) {
 	for _, groupID := range add {
-		if err := r.client.AddUserToGroup(ctx, groupID, userID); err != nil && !isStatus(err, http.StatusConflict) {
+		err := r.client.AddUserToGroup(ctx, groupID, userID)
+		switch {
+		case err == nil, isStatus(err, http.StatusConflict):
+		case errors.Is(err, client.ErrNotFound):
+			diags.AddError("Error adding user to JumpCloud user group", fmt.Sprintf("User %s or user group %s does not exist.", userID, groupID))
+			notAdded = append(notAdded, groupID)
+		default:
 			diags.AddError("Error adding user to JumpCloud user group "+groupID, err.Error())
+			notAdded = append(notAdded, groupID)
 		}
 	}
 	for _, groupID := range remove {
@@ -158,5 +164,20 @@ func (r *userGroupMembershipsResource) change(ctx context.Context, userID string
 			notRemoved = append(notRemoved, groupID)
 		}
 	}
-	return notRemoved
+	return notAdded, notRemoved
+}
+
+// without returns the items of a that are not in b.
+func without(a, b []string) []string {
+	return slices.DeleteFunc(slices.Clone(a), func(id string) bool { return slices.Contains(b, id) })
+}
+
+// stringSet converts to a set, never null: a nil slice becomes an empty set.
+func stringSet(ctx context.Context, items []string, diags *diag.Diagnostics) types.Set {
+	if items == nil {
+		items = []string{}
+	}
+	set, d := types.SetValueFrom(ctx, types.StringType, items)
+	diags.Append(d...)
+	return set
 }

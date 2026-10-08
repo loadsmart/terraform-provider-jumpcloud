@@ -1,6 +1,6 @@
 # terraform-provider-jumpcloud
 
-Terraform provider for managing JumpCloud user groups, group memberships, and application associations.
+Terraform provider for managing JumpCloud user groups and group memberships.
 
 This provider is in early development. It currently supports:
 

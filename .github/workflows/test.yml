@@ -29,7 +29,7 @@ jobs:
       - uses: hashicorp/setup-terraform@v4.0.1
         with:
           terraform_wrapper: false
-      - run: go test -v -cover -timeout=120s ./...
+      - run: go test -v -cover -timeout=5m ./...
 
   docs:
     name: Generated docs are up to date

@@ -30,7 +30,7 @@ locals {
 
 ### Optional
 
-- `filter` (Map of String) Exact, case-sensitive matches on JumpCloud user fields, combined with AND, for example `{ department = "Engineering" }`. Keys use the JumpCloud API field names, such as `department`, `jobTitle`, `state`, or `email`. Omit to list every user.
+- `filter` (Map of String) Exact, case-sensitive matches on JumpCloud user fields, combined with AND, for example `{ department = "Engineering" }`. Keys use the JumpCloud API field names, such as `department`, `jobTitle`, `state`, or `email`, not the snake_case output names; an unknown key matches no users. Omit to list every user.
 
 ### Read-Only
 

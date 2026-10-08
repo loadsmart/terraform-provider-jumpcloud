@@ -32,7 +32,8 @@ func (d *usersDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, 
 		Attributes: map[string]schema.Attribute{
 			"filter": schema.MapAttribute{
 				MarkdownDescription: "Exact, case-sensitive matches on JumpCloud user fields, combined with AND, for example `{ department = \"Engineering\" }`. " +
-					"Keys use the JumpCloud API field names, such as `department`, `jobTitle`, `state`, or `email`. Omit to list every user.",
+					"Keys use the JumpCloud API field names, such as `department`, `jobTitle`, `state`, or `email`, not the snake_case output names; " +
+					"an unknown key matches no users. Omit to list every user.",
 				Optional:    true,
 				ElementType: types.StringType,
 			},

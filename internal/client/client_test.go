@@ -532,3 +532,16 @@ func assertRequests(t *testing.T, got, want []recorded) {
 		}
 	}
 }
+
+func TestFindUserGroupsByNameWithComma(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, []UserGroup{{ID: "1", Name: "Sales, EMEA"}, {ID: "2", Name: "Sales"}})
+	})
+	groups, err := c.FindUserGroupsByName(context.Background(), "Sales, EMEA")
+	if err != nil || len(groups) != 1 || groups[0].ID != "1" {
+		t.Fatalf("groups = %+v, %v", groups, err)
+	}
+	if q := fake.all()[0].Query; q["filter"] != nil {
+		t.Errorf("filter = %v, want none for names with commas", q["filter"])
+	}
+}

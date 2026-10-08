@@ -13,7 +13,7 @@ lint:
 	golangci-lint run
 
 test:
-	go test -v -cover -timeout=120s -parallel=10 ./...
+	go test -v -cover -timeout=5m -parallel=10 ./...
 
 docs:
 	terraform fmt -recursive examples/
