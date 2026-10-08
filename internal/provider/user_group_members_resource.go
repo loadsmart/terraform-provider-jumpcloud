@@ -41,7 +41,8 @@ func (r *userGroupMembersResource) Schema(_ context.Context, _ resource.SchemaRe
 		MarkdownDescription: "Manages every direct member of a static JumpCloud user group, like `okta_group_memberships` in the Okta provider. " +
 			"It is authoritative: users not listed in `user_ids` are removed, including members added in the admin console. " +
 			"Do not combine it with `jumpcloud_user_group_memberships` on the same group, or the two will keep undoing each other's changes. " +
-			"Dynamic groups are not supported; use `membership_rule` on `jumpcloud_user_group` instead.",
+			"Dynamic groups are not supported; use `membership_rule` on `jumpcloud_user_group` instead. " +
+			"If the group becomes dynamic later, the resource keeps its last members and warns until you remove it.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "Same as `group_id`.",
@@ -97,11 +98,21 @@ func (r *userGroupMembersResource) Read(ctx context.Context, req resource.ReadRe
 	}
 
 	groupID := state.GroupID.ValueString()
-	if _, err := r.client.GetUserGroup(ctx, groupID); errors.Is(err, client.ErrNotFound) {
+	g, err := r.client.GetUserGroup(ctx, groupID)
+	if errors.Is(err, client.ErrNotFound) {
 		resp.State.RemoveResource(ctx)
 		return
-	} else if err != nil {
+	}
+	if err != nil {
 		resp.Diagnostics.AddError("Error reading JumpCloud user group", err.Error())
+		return
+	}
+	if g.Dynamic() {
+		// Its rule decides the members now, and Update refuses dynamic groups, so reading
+		// them would plan a change no apply can make. Keep the last members instead.
+		resp.Diagnostics.AddWarning("JumpCloud user group is dynamic", fmt.Sprintf(
+			"User group %s now has a membership rule, so this resource no longer manages its members. "+
+				"Remove this resource, and use membership_rule.include_user_ids and exclude_user_ids on the group instead.", groupID))
 		return
 	}
 	members, err := r.client.UserGroupMemberIDs(ctx, groupID)

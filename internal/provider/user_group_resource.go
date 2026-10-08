@@ -317,10 +317,8 @@ func (r *userGroupResource) Create(ctx context.Context, req resource.CreateReque
 		resp.Diagnostics.AddError("Error creating JumpCloud user group", writeErrorDetail(err, change))
 		return
 	}
-	// The group exists now, so member failures are warnings: an error would taint it and the
-	// next apply would recreate it with a new ID. Without an error Terraform requires state to
-	// match the plan, so the planned lists are kept; the refresh before the next plan reads what
-	// JumpCloud has, and that plan retries the failed changes.
+	// The group exists, so member failures are warnings: an error would taint it and the next
+	// apply would recreate it. State must then match the plan; the next refresh corrects it.
 	var memberDiags diag.Diagnostics
 	members := r.applyExemptions(ctx, g.ID, plan.MembershipRule, &memberDiags)
 	state := newUserGroupResourceModel(ctx, *g, members, &resp.Diagnostics)

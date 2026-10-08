@@ -3,12 +3,12 @@
 page_title: "jumpcloud_user_group_members Resource - jumpcloud"
 subcategory: ""
 description: |-
-  Manages every direct member of a static JumpCloud user group, like okta_group_memberships in the Okta provider. It is authoritative: users not listed in user_ids are removed, including members added in the admin console. Do not combine it with jumpcloud_user_group_memberships on the same group, or the two will keep undoing each other's changes. Dynamic groups are not supported; use membership_rule on jumpcloud_user_group instead.
+  Manages every direct member of a static JumpCloud user group, like okta_group_memberships in the Okta provider. It is authoritative: users not listed in user_ids are removed, including members added in the admin console. Do not combine it with jumpcloud_user_group_memberships on the same group, or the two will keep undoing each other's changes. Dynamic groups are not supported; use membership_rule on jumpcloud_user_group instead. If the group becomes dynamic later, the resource keeps its last members and warns until you remove it.
 ---
 
 # jumpcloud_user_group_members (Resource)
 
-Manages every direct member of a static JumpCloud user group, like `okta_group_memberships` in the Okta provider. It is authoritative: users not listed in `user_ids` are removed, including members added in the admin console. Do not combine it with `jumpcloud_user_group_memberships` on the same group, or the two will keep undoing each other's changes. Dynamic groups are not supported; use `membership_rule` on `jumpcloud_user_group` instead.
+Manages every direct member of a static JumpCloud user group, like `okta_group_memberships` in the Okta provider. It is authoritative: users not listed in `user_ids` are removed, including members added in the admin console. Do not combine it with `jumpcloud_user_group_memberships` on the same group, or the two will keep undoing each other's changes. Dynamic groups are not supported; use `membership_rule` on `jumpcloud_user_group` instead. If the group becomes dynamic later, the resource keeps its last members and warns until you remove it.
 
 ## Example Usage
 

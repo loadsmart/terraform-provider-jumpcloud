@@ -100,6 +100,18 @@ resource "jumpcloud_user_group_members" "test" {
 			{Config: config("missing"), ExpectError: regexp.MustCompile(`User group missing does not exist`)},
 			{Config: config(static)},
 			{
+				// A group made dynamic outside Terraform keeps its last members in state with a
+				// warning, instead of a diff that no apply can fix.
+				PreConfig: func() {
+					f.editGroup(static, func(g *fakeGroup) {
+						g.MembershipMethod = "DYNAMIC_AUTOMATED"
+						g.MemberQuery = json.RawMessage(`{"filters":[{"field":"user.email","operation":"equals","value":"nobody@example.com"}]}`)
+					})
+				},
+				Config:   config(static),
+				PlanOnly: true,
+			},
+			{
 				// A group deleted outside Terraform is removed from state.
 				PreConfig:          func() { f.deleteGroup(static) },
 				Config:             config(static),

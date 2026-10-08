@@ -170,8 +170,7 @@ var fakeRuleFields = map[string]func(client.User) string{
 }
 
 // evaluate applies a dynamic group's rule: exempt users keep their current membership and
-// every other user is a member exactly when they match. JumpCloud does this within
-// seconds; the fake does it at once. Callers hold f.mu.
+// every other user is a member exactly when they match. Callers hold f.mu.
 func (f *fakeJumpCloud) evaluate(id string) {
 	g := f.groups[id]
 	if !g.dynamic() {
