@@ -11,6 +11,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/hashicorp/terraform-plugin-framework/providerserver"
+	"github.com/hashicorp/terraform-plugin-go/tfprotov6"
+
 	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
 )
 
@@ -246,4 +249,8 @@ func writeFake(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(body)
+}
+
+var testProviderFactories = map[string]func() (tfprotov6.ProviderServer, error){
+	"jumpcloud": providerserver.NewProtocol6WithError(New("test")()),
 }

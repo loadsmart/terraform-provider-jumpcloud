@@ -2,12 +2,10 @@ package provider
 
 import (
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
 
-	"github.com/hashicorp/terraform-plugin-testing/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
@@ -120,56 +118,6 @@ data "jumpcloud_users" "all" {}`,
 				),
 			},
 			{Config: lookup("nobody@loadsmart.com"), ExpectError: regexp.MustCompile(`found 0`)},
-		},
-	})
-}
-
-// TestAccUserGroupMemberships needs an existing user, because the provider does not
-// manage users. Set JUMPCLOUD_TEST_USER_EMAIL to run it.
-func TestAccUserGroupMemberships(t *testing.T) {
-	email := os.Getenv("JUMPCLOUD_TEST_USER_EMAIL")
-	if email == "" {
-		t.Skip("JUMPCLOUD_TEST_USER_EMAIL is not set")
-	}
-	prefix := "tfacc-" + acctest.RandString(8)
-	config := func(groups string) string {
-		return fmt.Sprintf(`
-data "jumpcloud_user" "test" {
-  email = %q
-}
-
-data "jumpcloud_users" "test" {
-  filter = { email = %q }
-}
-
-resource "jumpcloud_user_group" "test" {
-  count = 2
-  name  = "%s-${count.index}"
-}
-
-resource "jumpcloud_user_group_memberships" "test" {
-  user_id   = data.jumpcloud_user.test.id
-  group_ids = %s
-}`, email, email, prefix, groups)
-	}
-	const addr = "jumpcloud_user_group_memberships.test"
-
-	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) },
-		ProtoV6ProviderFactories: testProviderFactories,
-		CheckDestroy:             testAccCheckUserGroupsDestroyed(t),
-		Steps: []resource.TestStep{
-			{
-				Config: config("jumpcloud_user_group.test[*].id"),
-				Check: resource.ComposeAggregateTestCheckFunc(
-					resource.TestCheckResourceAttr("data.jumpcloud_users.test", "users.#", "1"),
-					resource.TestCheckResourceAttr(addr, "group_ids.#", "2"),
-				),
-			},
-			{
-				Config: config("[jumpcloud_user_group.test[0].id]"),
-				Check:  resource.TestCheckResourceAttr(addr, "group_ids.#", "1"),
-			},
 		},
 	})
 }

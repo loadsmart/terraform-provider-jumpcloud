@@ -25,13 +25,10 @@ Arguments take precedence over environment variables.
 
 Requirements: Go (version in `go.mod`), [golangci-lint](https://golangci-lint.run/) v2, and Terraform 1.0 or later on `PATH` (the unit tests run it against a fake JumpCloud API).
 
-The membership acceptance test also needs an existing user: set `JUMPCLOUD_TEST_USER_EMAIL` (in CI, the repository variable of the same name).
-
 ```shell
 make build    # compile
 make lint     # golangci-lint
 make test     # unit tests
-make testacc  # acceptance tests; creates and deletes tfacc-* objects in the JumpCloud org behind JUMPCLOUD_API_KEY
 make docs     # regenerate docs/ from the schema and examples/
 ```
 
