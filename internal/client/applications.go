@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 )
 
 // Application is a JumpCloud SSO application (v1 API), limited to the fields the provider exposes.
@@ -190,6 +191,11 @@ func (c *Client) UpdateOIDCSettings(ctx context.Context, id string, hidden bool,
 	raw, _ := json.Marshal(s) // strings and slices always marshal
 	if err := json.Unmarshal(raw, &current.OIDC); err != nil {
 		return err
+	}
+	// JumpCloud sets a refresh token lifespan even when refresh_token is not granted, but
+	// rejects a write that carries one, so the preserved value has to be dropped again.
+	if !slices.Contains(s.GrantTypes, "refresh_token") {
+		delete(current.OIDC, "refreshTokenLifespan")
 	}
 
 	body := map[string]any{"type": oidcTemplate, "hidden": hidden, "oidc": current.OIDC}

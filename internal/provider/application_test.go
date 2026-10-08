@@ -224,6 +224,39 @@ resource "jumpcloud_oidc_application" "test" {
 	})
 }
 
+// JumpCloud sets a refresh token lifespan even when refresh_token is not granted, and
+// then rejects it on write. Updates used to resend it and fail with 422.
+func TestOIDCApplicationUpdateWithoutRefreshTokenGrant(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_oidc_application.test"
+	config := func(label, loginURL string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_oidc_application" "test" {
+  display_label = %q
+  redirect_uris = ["https://example.com"]
+  login_url     = %q
+  grant_types   = ["authorization_code"]
+}`, label, loginURL)
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config("terraform-test", "https://example.com")},
+			{
+				// Label only: the SSO settings must be left alone entirely.
+				Config: config("Terraform Test", "https://example.com"),
+				Check:  resource.TestCheckResourceAttr(addr, "display_label", "Terraform Test"),
+			},
+			{
+				// Settings change: the lifespan JumpCloud set must not be sent back.
+				Config: config("Terraform Test", "https://app.example.com"),
+				Check:  resource.TestCheckResourceAttr(addr, "login_url", "https://app.example.com"),
+			},
+		},
+	})
+}
+
 func TestApplicationAssociationResource(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	app := f.addApp("grafana", "oidc")

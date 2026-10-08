@@ -42,6 +42,7 @@ func (f *fakeJumpCloud) addConsoleOIDCApp() string {
 		"tokenEndpointAuthMethod": "client_secret_post",
 		"dynamicClaims":           []any{},
 		"accessTokenLifespan":     "1h",
+		"refreshTokenLifespan":    "720h",
 	}}
 	return id
 }
@@ -149,6 +150,8 @@ func (f *fakeJumpCloud) createSSO(w http.ResponseWriter, r *http.Request) {
 	}
 	body.OIDC["clientId"] = "client-" + id
 	body.OIDC["accessTokenLifespan"] = "1h"
+	// JumpCloud sets a refresh token lifespan even when refresh_token is not granted.
+	body.OIDC["refreshTokenLifespan"] = "720h"
 	f.mu.Lock()
 	f.sso[id] = body
 	f.mu.Unlock()
@@ -180,10 +183,24 @@ func (f *fakeJumpCloud) updateSSO(w http.ResponseWriter, r *http.Request) {
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 		return
 	}
-	// JumpCloud replaces the whole OIDC object but keeps the client ID.
+	if _, set := body.OIDC["refreshTokenLifespan"]; set && !grants(body.OIDC, "refresh_token") {
+		writeFake(w, http.StatusUnprocessableEntity, map[string]string{
+			"message": "refreshTokenLifespan can only be set if grantTypes includes refresh_token",
+		})
+		return
+	}
+	// JumpCloud replaces the whole OIDC object but keeps the client ID, and always
+	// puts the refresh token lifespan back.
 	body.OIDC["clientId"] = current.OIDC["clientId"]
+	body.OIDC["refreshTokenLifespan"] = "720h"
 	f.sso[id] = body
 	writeFake(w, http.StatusOK, map[string]any{"type": "oidc", "hidden": body.Hidden, "oidc": body.OIDC})
+}
+
+// grants reports whether an OIDC document's grantTypes includes grant.
+func grants(oidc map[string]any, grant string) bool {
+	list, _ := oidc["grantTypes"].([]any)
+	return slices.ContainsFunc(list, func(g any) bool { return g == grant })
 }
 
 func (f *fakeJumpCloud) listAssocs(w http.ResponseWriter, r *http.Request) {
