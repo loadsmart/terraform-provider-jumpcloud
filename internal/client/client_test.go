@@ -545,3 +545,32 @@ func TestFindUserGroupsByNameWithComma(t *testing.T) {
 		t.Errorf("filter = %v, want none for names with commas", q["filter"])
 	}
 }
+
+func TestCreateOIDCApplicationDeletesAppWhenSettingsFail(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method + " " + r.URL.Path {
+		case "POST /api/applications":
+			writeJSON(t, w, http.StatusOK, map[string]string{"_id": "a1"})
+		case "POST /api/v2/applications/a1/sso":
+			writeJSON(t, w, http.StatusBadRequest, map[string]string{"message": "invalid redirect URI"})
+		default:
+			w.WriteHeader(http.StatusNoContent)
+		}
+	})
+
+	_, err := c.CreateOIDCApplication(context.Background(), OIDCApplication{DisplayLabel: "app", OIDC: OIDCSettings{DynamicClaims: []OIDCClaim{}}})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Message != "invalid redirect URI" {
+		t.Fatalf("error = %v, want the settings error", err)
+	}
+	reqs := fake.all()
+	if len(reqs) != 3 || reqs[2].Method != http.MethodDelete || reqs[2].Path != "/api/applications/a1" {
+		t.Fatalf("requests = %+v, want create, settings, delete", reqs)
+	}
+	if strings.Contains(reqs[0].Body, "ssoUrl") {
+		t.Errorf("create body %s must not send ssoUrl, which JumpCloud rejects for OIDC apps", reqs[0].Body)
+	}
+	if !strings.Contains(reqs[1].Body, `"consent":"trusted"`) {
+		t.Errorf("settings body %s should set consent to trusted", reqs[1].Body)
+	}
+}
