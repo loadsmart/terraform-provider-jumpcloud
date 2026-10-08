@@ -53,7 +53,7 @@ func (p *jumpcloudProvider) Metadata(_ context.Context, _ provider.MetadataReque
 
 func (p *jumpcloudProvider) Schema(_ context.Context, _ provider.SchemaRequest, resp *provider.SchemaResponse) {
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manage JumpCloud user groups and group memberships, and look up users.",
+		MarkdownDescription: "Manage JumpCloud user groups, group memberships, OIDC applications, and application access.",
 		Attributes: map[string]schema.Attribute{
 			"api_key": schema.StringAttribute{
 				MarkdownDescription: "JumpCloud API key. Can also be set with the `JUMPCLOUD_API_KEY` environment variable.",
@@ -132,6 +132,8 @@ func (p *jumpcloudProvider) Resources(_ context.Context) []func() resource.Resou
 	return []func() resource.Resource{
 		NewUserGroupResource,
 		NewUserGroupMembershipsResource,
+		NewOIDCApplicationResource,
+		NewApplicationAssociationResource,
 	}
 }
 
@@ -140,5 +142,6 @@ func (p *jumpcloudProvider) DataSources(_ context.Context) []func() datasource.D
 		NewUserGroupDataSource,
 		NewUserGroupsDataSource,
 		NewUsersDataSource,
+		NewApplicationDataSource,
 	}
 }

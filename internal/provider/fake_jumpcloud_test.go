@@ -26,11 +26,18 @@ type fakeJumpCloud struct {
 	groups  map[string]client.UserGroup
 	members map[string][]string // group ID -> user IDs
 	users   []client.User
+	apps    map[string]client.Application
+	sso     map[string]fakeSSO
+	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
+	renames int                 // v1 PUT /api/applications/{id} calls
 }
 
 func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	t.Helper()
-	f := &fakeJumpCloud{groups: map[string]client.UserGroup{}, members: map[string][]string{}}
+	f := &fakeJumpCloud{
+		groups: map[string]client.UserGroup{}, members: map[string][]string{},
+		apps: map[string]client.Application{}, sso: map[string]fakeSSO{}, assocs: map[string][]string{},
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /api/v2/usergroups", f.createGroup)
@@ -41,6 +48,16 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	mux.HandleFunc("POST /api/v2/usergroups/{id}/members", f.changeMember)
 	mux.HandleFunc("GET /api/v2/users/{id}/memberof", f.memberOf)
 	mux.HandleFunc("GET /api/systemusers", f.listUsers)
+	mux.HandleFunc("POST /api/applications", f.createApp)
+	mux.HandleFunc("GET /api/applications", f.listApps)
+	mux.HandleFunc("GET /api/applications/{id}", f.getApp)
+	mux.HandleFunc("PUT /api/applications/{id}", f.renameApp)
+	mux.HandleFunc("DELETE /api/applications/{id}", f.deleteApp)
+	mux.HandleFunc("POST /api/v2/applications/{id}/sso", f.createSSO)
+	mux.HandleFunc("GET /api/v2/applications/{id}/sso", f.getSSO)
+	mux.HandleFunc("PUT /api/v2/applications/{id}/sso", f.updateSSO)
+	mux.HandleFunc("GET /api/v2/applications/{id}/associations", f.listAssocs)
+	mux.HandleFunc("POST /api/v2/applications/{id}/associations", f.changeAssoc)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -209,30 +226,32 @@ func (f *fakeJumpCloud) memberOf(w http.ResponseWriter, r *http.Request) {
 	writeFake(w, http.StatusOK, out)
 }
 
-// listUsers supports the filter[i]=field:$eq:value form the client sends.
 func (f *fakeJumpCloud) listUsers(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	users := slices.Clone(f.users)
 	f.mu.Unlock()
+	writeFake(w, http.StatusOK, map[string]any{"results": filtered(r, users)})
+}
 
-	var out []client.User
-	for _, u := range users {
-		raw, _ := json.Marshal(u)
+// filtered applies the filter[i]=field:$eq:value query the client sends to v1 lists.
+func filtered[T any](r *http.Request, items []T) []T {
+	var out []T
+	for _, item := range items {
+		raw, _ := json.Marshal(item)
 		var fields map[string]any
 		_ = json.Unmarshal(raw, &fields)
 		match := true
 		for key, values := range r.URL.Query() {
-			if !strings.HasPrefix(key, "filter[") {
-				continue
+			if strings.HasPrefix(key, "filter[") {
+				field, value, _ := strings.Cut(values[0], ":$eq:")
+				match = match && fmt.Sprint(fields[field]) == value
 			}
-			field, value, _ := strings.Cut(values[0], ":$eq:")
-			match = match && fmt.Sprint(fields[field]) == value
 		}
 		if match {
-			out = append(out, u)
+			out = append(out, item)
 		}
 	}
-	writeFake(w, http.StatusOK, map[string]any{"results": out})
+	return out
 }
 
 func writeFake(w http.ResponseWriter, status int, body any) {
