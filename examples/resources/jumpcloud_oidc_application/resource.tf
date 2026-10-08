@@ -4,9 +4,11 @@ resource "jumpcloud_oidc_application" "grafana" {
   redirect_uris  = ["https://grafana.example.com/login/generic_oauth"]
   login_url      = "https://grafana.example.com"
 
-  # Send the user's department in the ID token.
+  # JumpCloud only puts mapped claims in the ID token and userinfo response.
   claims = {
-    department = "department"
+    email  = "email"
+    name   = "fullname"
+    groups = "groups"
   }
 }
 

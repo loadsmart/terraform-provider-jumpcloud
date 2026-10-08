@@ -99,11 +99,13 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				Default:             stringdefault.StaticString("client_secret_basic"),
 			},
 			"claims": schema.MapAttribute{
-				MarkdownDescription: "Extra token claims, mapping each claim name to a JumpCloud user attribute, for example `{ department = \"department\" }`.",
-				Optional:            true,
-				Computed:            true,
-				ElementType:         types.StringType,
-				Default:             mapdefault.StaticValue(types.MapValueMust(types.StringType, map[string]attr.Value{})),
+				MarkdownDescription: "Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, " +
+					"even for the `email` and `profile` scopes, so map the ones the application needs, for example " +
+					"`{ email = \"email\", name = \"fullname\", groups = \"groups\" }`. `groups` lists the user groups bound to the application.",
+				Optional:    true,
+				Computed:    true,
+				ElementType: types.StringType,
+				Default:     mapdefault.StaticValue(types.MapValueMust(types.StringType, map[string]attr.Value{})),
 			},
 			"client_id": schema.StringAttribute{
 				MarkdownDescription: "OAuth client ID.",

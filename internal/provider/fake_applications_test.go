@@ -52,6 +52,10 @@ func (f *fakeJumpCloud) createApp(w http.ResponseWriter, r *http.Request) {
 		writeFake(w, http.StatusBadRequest, map[string]any{"status": 400, "error": "ssoUrl is not allowed for OIDC apps"})
 		return
 	}
+	if body["active"] != true {
+		writeFake(w, http.StatusBadRequest, map[string]string{"message": "test fake: create must set active"})
+		return
+	}
 	id := f.addApp(fmt.Sprint(body["displayLabel"]), fmt.Sprint(body["name"]))
 	a, _, _ := f.app(id)
 	writeFake(w, http.StatusOK, a)
@@ -77,8 +81,15 @@ func (f *fakeJumpCloud) getApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeJumpCloud) renameApp(w http.ResponseWriter, r *http.Request) {
-	var body client.Application
+	var body struct {
+		client.Application
+		Active bool `json:"active"`
+	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if !body.Active {
+		writeFake(w, http.StatusBadRequest, map[string]string{"message": "test fake: rename must keep active"})
+		return
+	}
 	f.mu.Lock()
 	a, ok := f.apps[r.PathValue("id")]
 	if ok {

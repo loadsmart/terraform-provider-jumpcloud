@@ -177,9 +177,12 @@ func (c *Client) DeleteApplication(ctx context.Context, id string) error {
 	return c.do(ctx, http.MethodDelete, "/api/applications/"+url.PathEscape(id), nil, nil, nil)
 }
 
+// oidcAppBody is the v1 create and rename body. ssoUrl must be absent: JumpCloud rejects
+// it for OIDC apps. active must be sent on every write, or sign-ins fail with "JumpCloud
+// could not connect to your application".
 func oidcAppBody(displayLabel string) map[string]any {
-	// ssoUrl must be absent: JumpCloud rejects it for OIDC apps.
 	return map[string]any{
+		"active":       true,
 		"name":         oidcTemplate,
 		"displayName":  "OpenID Connect",
 		"displayLabel": displayLabel,

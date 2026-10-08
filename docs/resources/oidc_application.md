@@ -22,9 +22,11 @@ resource "jumpcloud_oidc_application" "grafana" {
   redirect_uris  = ["https://grafana.example.com/login/generic_oauth"]
   login_url      = "https://grafana.example.com"
 
-  # Send the user's department in the ID token.
+  # JumpCloud only puts mapped claims in the ID token and userinfo response.
   claims = {
-    department = "department"
+    email  = "email"
+    name   = "fullname"
+    groups = "groups"
   }
 }
 
@@ -55,7 +57,7 @@ output "grafana_client_secret" {
 
 ### Optional
 
-- `claims` (Map of String) Extra token claims, mapping each claim name to a JumpCloud user attribute, for example `{ department = "department" }`.
+- `claims` (Map of String) Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, even for the `email` and `profile` scopes, so map the ones the application needs, for example `{ email = "email", name = "fullname", groups = "groups" }`. `groups` lists the user groups bound to the application.
 - `grant_types` (Set of String) Allowed grant types: `authorization_code` and `refresh_token`. JumpCloud supports no others.
 - `show_in_portal` (Boolean) Whether the application appears in users' JumpCloud portal. Hidden applications still accept sign-ins.
 - `token_endpoint_auth_method` (String) How the client authenticates at the token endpoint: `client_secret_basic`, `client_secret_post`, or `none` for a public client using PKCE.

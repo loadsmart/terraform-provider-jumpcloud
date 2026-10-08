@@ -567,6 +567,9 @@ func TestCreateOIDCApplicationDeletesAppWhenSettingsFail(t *testing.T) {
 	if len(reqs) != 3 || reqs[2].Method != http.MethodDelete || reqs[2].Path != "/api/applications/a1" {
 		t.Fatalf("requests = %+v, want create, settings, delete", reqs)
 	}
+	if !strings.Contains(reqs[0].Body, `"active":true`) {
+		t.Errorf("create body %s must activate the app, or sign-ins fail", reqs[0].Body)
+	}
 	if strings.Contains(reqs[0].Body, "ssoUrl") {
 		t.Errorf("create body %s must not send ssoUrl, which JumpCloud rejects for OIDC apps", reqs[0].Body)
 	}
