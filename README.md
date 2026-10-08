@@ -50,8 +50,11 @@ Releases are continuous. On every push to `main`, [release-please](https://githu
 | --- | --- |
 | `fix:` | patch (`v0.1.0` → `v0.1.1`) |
 | `feat:` | minor (`v0.1.0` → `v0.2.0`) |
-| `feat!:` or `BREAKING CHANGE:` | minor while on `v0`, major from `v1` on |
-| `ci:`, `docs:`, `chore:`, `refactor:`, `test:` | no release |
+| `feat!:` or `fix!:` | minor while on `v0`, major from `v1` on |
+| `perf:`, `revert:` | patch |
+| `ci:`, `docs:`, `chore:`, `refactor:`, `test:`, `build:`, `style:` | no release |
+
+Squash merges use the PR title as the commit message and leave the body blank, so mark breaking changes with `!` in the PR title; a `BREAKING CHANGE:` footer is not seen.
 
 The merged release PR updates `CHANGELOG.md` and creates a draft GitHub release with its `v*` tag. The tag runs `.github/workflows/release.yml`, which uploads the GoReleaser artifacts signed with the `GPG_PRIVATE_KEY` key and publishes the release. The HCP Terraform GitHub App then notifies the Terraform Registry ([`loadsmart/jumpcloud`](https://registry.terraform.io/providers/loadsmart/jumpcloud)).
 

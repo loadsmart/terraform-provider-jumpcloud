@@ -32,8 +32,9 @@ signs:
       - --detach-sign
       - ${artifact}
 release:
-  # release-please creates a draft release named after the tag; upload into it and
-  # keep its notes. A tag pushed by hand gets a new release instead.
+  # release-please pushes the tag, then creates a draft release named after it;
+  # release.yml waits for that draft, and GoReleaser uploads into it and keeps its
+  # notes. A tag pushed by hand gets a new release instead.
   use_existing_draft: true
   mode: keep-existing
   extra_files:

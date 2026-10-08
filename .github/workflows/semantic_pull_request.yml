@@ -12,8 +12,6 @@ permissions:
 
 jobs:
   main:
-    # release-please opens its PRs from release-please--branches--* with a valid title.
-    if: ${{ !startsWith(github.head_ref, 'release-') }}
     name: Validate Pull Request Title
     runs-on: ubuntu-latest
     steps:

@@ -1,4 +1,4 @@
-default: fmt lint test build docs
+default: fmt lint test build
 
 build:
 	go build -v ./...
