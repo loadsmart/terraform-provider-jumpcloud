@@ -26,3 +26,22 @@ jobs:
         with:
           version: latest
       - run: go test -v -cover -timeout=120s ./...
+
+  docs:
+    name: Generated docs are up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_wrapper: false
+      - run: make docs
+      - name: Check for drift
+        run: |
+          git add -N .
+          git diff --exit-code || (echo "docs/ or examples/ are out of date; run 'make docs' and commit." && exit 1)

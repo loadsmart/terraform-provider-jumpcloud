@@ -1,0 +1,45 @@
+# See https://developer.hashicorp.com/terraform/registry/providers/publishing
+version: 2
+builds:
+  - env:
+      # Static binaries run anywhere Terraform does, including CI images without libc.
+      - CGO_ENABLED=0
+    mod_timestamp: '{{ .CommitTimestamp }}'
+    flags:
+      - -trimpath
+    ldflags:
+      - '-s -w -X main.version={{ .Version }}'
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    binary: '{{ .ProjectName }}_v{{ .Version }}'
+archives:
+  - formats:
+      - zip
+    name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
+checksum:
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+  name_template: '{{ .ProjectName }}_{{ .Version }}_SHA256SUMS'
+signs:
+  - artifacts: checksum
+    args:
+      - --batch
+      - --local-user
+      - '{{ .Env.GPG_FINGERPRINT }}'
+      - --output
+      - ${signature}
+      - --detach-sign
+      - ${artifact}
+release:
+  # release-please pushes the tag, then creates a draft release named after it;
+  # release.yml waits for that draft, and GoReleaser uploads into it and keeps its
+  # notes. A tag pushed by hand gets a new release instead.
+  use_existing_draft: true
+  mode: keep-existing
+  extra_files:
+    - glob: terraform-registry-manifest.json
+      name_template: '{{ .ProjectName }}_{{ .Version }}_manifest.json'
+changelog:
+  # Release notes come from release-please (CHANGELOG.md).
+  disable: true

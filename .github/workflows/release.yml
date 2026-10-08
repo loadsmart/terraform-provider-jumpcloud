@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Import GPG key
+        id: import_gpg
+        uses: crazy-max/ghaction-import-gpg@v7.0.0
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+      # release-please pushes the tag a moment before it creates the draft release that
+      # GoReleaser fills. If no draft shows up, GoReleaser creates the release itself.
+      - name: Wait for the release-please draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for _ in $(seq 1 12); do
+            gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft >/dev/null 2>&1 && exit 0
+            sleep 5
+          done
+          echo "No draft release for $GITHUB_REF_NAME; GoReleaser will create one."
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7.2.3
+        with:
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}

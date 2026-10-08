@@ -1,0 +1,5 @@
+# This repo builds a Terraform provider; its .tf files are examples, not infrastructure.
+version: 3
+autodiscover:
+  mode: disabled
+projects: []

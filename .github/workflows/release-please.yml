@@ -1,0 +1,43 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+# Serialize runs so two quick merges don't race on the same release PR. Never cancel:
+# the run after a release PR merge is the one that tags the release.
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # Pushes made with GITHUB_TOKEN do not trigger workflows, so the app token is
+      # what lets the release tag start release.yml.
+      - name: Create Rollbot token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ vars.ROLLBOT_CLIENT_ID }}
+          private-key: ${{ secrets.ROLLBOT_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - id: release
+        uses: googleapis/release-please-action@v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Merge release PR
+        if: steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ fromJSON(steps.release.outputs.pr).number }}
+        run: gh pr merge "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --squash --admin
