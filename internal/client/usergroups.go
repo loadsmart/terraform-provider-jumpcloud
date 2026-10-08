@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // UserGroup is a JumpCloud user group (v2 API).
@@ -66,9 +67,14 @@ func (c *Client) ListUserGroups(ctx context.Context) ([]UserGroup, error) {
 }
 
 // FindUserGroupsByName returns groups whose name equals name exactly. JumpCloud's
-// filter values accept wildcards, so results are re-checked for an exact match.
+// filter values accept wildcards, so results are re-checked for an exact match. The
+// filter parameter is comma-separated, so names with commas are matched client-side.
 func (c *Client) FindUserGroupsByName(ctx context.Context, name string) ([]UserGroup, error) {
-	groups, err := list[UserGroup](ctx, c, "/api/v2/usergroups", url.Values{"filter": {"name:eq:" + name}}, false)
+	query := url.Values{"filter": {"name:eq:" + name}}
+	if strings.Contains(name, ",") {
+		query = nil
+	}
+	groups, err := list[UserGroup](ctx, c, "/api/v2/usergroups", query, false)
 	if err != nil {
 		return nil, err
 	}

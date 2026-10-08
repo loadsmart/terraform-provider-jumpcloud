@@ -1,11 +1,13 @@
 # terraform-provider-jumpcloud
 
-Terraform provider for managing JumpCloud user groups, group memberships, and application associations.
+Terraform provider for managing JumpCloud user groups and group memberships.
 
-This provider is in early development and has no resources yet. The v0.1 scope is:
+This provider is in early development. It currently supports:
 
-- Resources: `jumpcloud_user_group`, `jumpcloud_user_group_memberships`, `jumpcloud_application_association`
-- Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_user`, `jumpcloud_users`, `jumpcloud_application`
+- Resources: `jumpcloud_user_group`, `jumpcloud_user_group_memberships`
+- Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_users`
+
+See [`docs/`](docs/) for arguments and examples.
 
 ## Provider configuration
 
@@ -21,13 +23,12 @@ Arguments take precedence over environment variables.
 
 ## Development
 
-Requirements: Go (version in `go.mod`), [golangci-lint](https://golangci-lint.run/) v2, and Terraform 1.0 or later.
+Requirements: Go (version in `go.mod`), [golangci-lint](https://golangci-lint.run/) v2, and Terraform 1.0 or later on `PATH` (the unit tests run it against a fake JumpCloud API).
 
 ```shell
 make build    # compile
 make lint     # golangci-lint
 make test     # unit tests
-make testacc  # acceptance tests; creates real objects in the JumpCloud org behind JUMPCLOUD_API_KEY
 make docs     # regenerate docs/ from the schema and examples/
 ```
 

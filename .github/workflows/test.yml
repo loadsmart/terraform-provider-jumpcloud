@@ -25,7 +25,11 @@ jobs:
         uses: golangci/golangci-lint-action@v9.3.0
         with:
           version: latest
-      - run: go test -v -cover -timeout=120s ./...
+      # Resource unit tests run the Terraform CLI against a fake JumpCloud API.
+      - uses: hashicorp/setup-terraform@v4.0.1
+        with:
+          terraform_wrapper: false
+      - run: go test -v -cover -timeout=5m ./...
 
   docs:
     name: Generated docs are up to date
