@@ -14,7 +14,7 @@ import (
 
 func TestUserGroupMembershipsResource(t *testing.T) {
 	f := newFakeJumpCloud(t)
-	f.addUser(client.User{ID: "u1", Email: "ana@loadsmart.com"})
+	f.addUser(client.User{ID: "u1", Email: "ana@example.com"})
 	a, b := f.addGroup("a", ""), f.addGroup("b", "")
 	outside := f.addGroup("outside", "")
 	f.addMember(outside, "u1")
@@ -140,10 +140,10 @@ func quoted(items []string) string {
 func TestUserDataSources(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	f.addUser(client.User{
-		ID: "u1", Email: "ana@loadsmart.com", Username: "ana", State: "ACTIVATED",
+		ID: "u1", Email: "ana@example.com", Username: "ana", State: "ACTIVATED",
 		Department: "Engineering", JobTitle: "SRE", Attributes: []client.UserAttribute{{Name: "team", Value: "platform"}},
 	})
-	f.addUser(client.User{ID: "u2", Email: "bo@loadsmart.com", Department: "Sales"})
+	f.addUser(client.User{ID: "u2", Email: "bo@example.com", Department: "Sales"})
 
 	const eng = "data.jumpcloud_users.engineering"
 	resource.UnitTest(t, resource.TestCase{
@@ -158,7 +158,7 @@ data "jumpcloud_users" "all" {}`,
 			Check: resource.ComposeAggregateTestCheckFunc(
 				resource.TestCheckResourceAttr(eng, "users.#", "1"),
 				resource.TestCheckResourceAttr(eng, "users.0.id", "u1"),
-				resource.TestCheckResourceAttr(eng, "users.0.email", "ana@loadsmart.com"),
+				resource.TestCheckResourceAttr(eng, "users.0.email", "ana@example.com"),
 				resource.TestCheckResourceAttr(eng, "users.0.username", "ana"),
 				resource.TestCheckResourceAttr(eng, "users.0.state", "ACTIVATED"),
 				resource.TestCheckResourceAttr(eng, "users.0.job_title", "SRE"),
