@@ -376,7 +376,7 @@ func TestUpdateUserGroupKeepsUnmanagedFields(t *testing.T) {
 		if r.Method == http.MethodGet {
 			writeJSON(t, w, http.StatusOK, map[string]any{
 				"id": "g1", "type": "user_group", "name": "old", "description": "old desc",
-				"email":            "devs@loadsmart.com",
+				"email":            "devs@example.com",
 				"attributes":       map[string]any{"sudo": map[string]bool{"enabled": true}},
 				"membershipMethod": "STATIC",
 				"suggestionCounts": map[string]int{"add": 1},
@@ -402,7 +402,7 @@ func TestUpdateUserGroupKeepsUnmanagedFields(t *testing.T) {
 	want := map[string]any{
 		"name":             "new",
 		"description":      "", // an empty description clears it
-		"email":            "devs@loadsmart.com",
+		"email":            "devs@example.com",
 		"attributes":       map[string]any{"sudo": map[string]any{"enabled": true}},
 		"membershipMethod": "STATIC",
 	}
@@ -438,24 +438,24 @@ func TestListUsersFilters(t *testing.T) {
 	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusOK, map[string]any{
 			"results": []map[string]any{{
-				"_id": "u1", "email": "a@loadsmart.com", "department": "Engineering",
+				"_id": "u1", "email": "a@example.com", "department": "Engineering",
 				"attributes": []map[string]string{{"name": "team", "value": "platform"}},
 			}},
 			"totalCount": 1,
 		})
 	})
 
-	users, err := c.ListUsers(context.Background(), map[string]string{"email": "a@loadsmart.com", "department": "Engineering"})
+	users, err := c.ListUsers(context.Background(), map[string]string{"email": "a@example.com", "department": "Engineering"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := User{ID: "u1", Email: "a@loadsmart.com", Department: "Engineering", Attributes: []UserAttribute{{"team", "platform"}}}
+	want := User{ID: "u1", Email: "a@example.com", Department: "Engineering", Attributes: []UserAttribute{{"team", "platform"}}}
 	if len(users) != 1 || !reflect.DeepEqual(users[0], want) {
 		t.Fatalf("users = %+v", users)
 	}
 
 	q := fake.all()[0].Query
-	if q["filter[0]"][0] != "department:$eq:Engineering" || q["filter[1]"][0] != "email:$eq:a@loadsmart.com" {
+	if q["filter[0]"][0] != "department:$eq:Engineering" || q["filter[1]"][0] != "email:$eq:a@example.com" {
 		t.Errorf("filters = %v", q)
 	}
 }

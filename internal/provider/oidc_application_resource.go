@@ -207,6 +207,13 @@ func (r *oidcApplicationResource) Update(ctx context.Context, req resource.Updat
 			resp.Diagnostics.AddError("Error renaming JumpCloud OIDC application", err.Error())
 			return
 		}
+		// Record the rename before touching the SSO settings, so failing there does not
+		// leave state holding the old label while JumpCloud already has the new one.
+		state.DisplayLabel = plan.DisplayLabel
+		resp.Diagnostics.Append(resp.State.Set(ctx, state)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 	}
 	if err := r.client.UpdateOIDCSettings(ctx, id, !plan.ShowInPortal.ValueBool(), settings); err != nil {
 		resp.Diagnostics.AddError("Error updating JumpCloud OIDC application", err.Error())

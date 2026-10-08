@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 )
 
 // Application is a JumpCloud SSO application (v1 API), limited to the fields the provider exposes.
@@ -16,6 +17,16 @@ type Application struct {
 	DisplayName  string `json:"displayName"`
 	DisplayLabel string `json:"displayLabel"`
 	SSOURL       string `json:"ssoUrl"`
+}
+
+// Label is the name shown in the admin console and the user portal. Applications created
+// in the console have an empty displayLabel, and JumpCloud falls back to displayName to
+// render them; the v1 API returns the empty string as-is, so the fallback is applied here.
+func (a Application) Label() string {
+	if a.DisplayLabel != "" {
+		return a.DisplayLabel
+	}
+	return a.DisplayName
 }
 
 // Association target types accepted by the application associations endpoint.
@@ -154,7 +165,7 @@ func (c *Client) GetOIDCApplication(ctx context.Context, id string) (*OIDCApplic
 	if err != nil {
 		return nil, err
 	}
-	return &OIDCApplication{ID: id, DisplayLabel: app.DisplayLabel, Hidden: sso.Hidden, OIDC: sso.OIDC}, nil
+	return &OIDCApplication{ID: id, DisplayLabel: app.Label(), Hidden: sso.Hidden, OIDC: sso.OIDC}, nil
 }
 
 // RenameApplication changes the label shown in the console and user portal. It does not
@@ -180,6 +191,11 @@ func (c *Client) UpdateOIDCSettings(ctx context.Context, id string, hidden bool,
 	raw, _ := json.Marshal(s) // strings and slices always marshal
 	if err := json.Unmarshal(raw, &current.OIDC); err != nil {
 		return err
+	}
+	// JumpCloud sets a refresh token lifespan even when refresh_token is not granted, but
+	// rejects a write that carries one, so the preserved value has to be dropped again.
+	if !slices.Contains(s.GrantTypes, "refresh_token") {
+		delete(current.OIDC, "refreshTokenLifespan")
 	}
 
 	body := map[string]any{"type": oidcTemplate, "hidden": hidden, "oidc": current.OIDC}
