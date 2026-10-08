@@ -84,9 +84,15 @@ func (r *userGroupMembersResource) Create(ctx context.Context, req resource.Crea
 		return
 	}
 
-	notAdded, notRemoved := r.change(ctx, groupID, without(want, current), without(current, want), &resp.Diagnostics)
+	// Member failures are warnings: an error would taint the resource, and replacing it would
+	// remove every member before adding them back. State must then match the plan; the next
+	// refresh corrects it and the next apply retries.
+	var memberDiags diag.Diagnostics
+	r.change(ctx, groupID, without(want, current), without(current, want), &memberDiags)
+	for _, d := range memberDiags {
+		resp.Diagnostics.AddWarning(d.Summary(), d.Detail()+" The next apply retries this change.")
+	}
 	plan.ID = plan.GroupID
-	plan.UserIDs = stringSet(ctx, append(without(want, notAdded), notRemoved...), &resp.Diagnostics)
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 

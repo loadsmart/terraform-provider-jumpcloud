@@ -270,16 +270,28 @@ func (r *userGroupResource) ValidateConfig(ctx context.Context, req resource.Val
 	}
 	var rule membershipRuleModel
 	resp.Diagnostics.Append(ruleObj.As(ctx, &rule, basetypes.ObjectAsOptions{})...)
-	if resp.Diagnostics.HasError() || rule.IncludeUserIDs.IsUnknown() || rule.ExcludeUserIDs.IsUnknown() {
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	include := setToStrings(ctx, rule.IncludeUserIDs, &resp.Diagnostics)
-	for _, id := range setToStrings(ctx, rule.ExcludeUserIDs, &resp.Diagnostics) {
+	include := knownStrings(rule.IncludeUserIDs)
+	for _, id := range knownStrings(rule.ExcludeUserIDs) {
 		if slices.Contains(include, id) {
 			resp.Diagnostics.AddAttributeError(path.Root("membership_rule"), "User both included and excluded",
 				fmt.Sprintf("User %s is in both include_user_ids and exclude_user_ids.", id))
 		}
 	}
+}
+
+// knownStrings returns the known elements of a set, which can hold unknown IDs (from
+// resources not created yet) while the configuration is validated.
+func knownStrings(s types.Set) []string {
+	var out []string
+	for _, v := range s.Elements() {
+		if str, ok := v.(types.String); ok && !str.IsUnknown() && !str.IsNull() {
+			out = append(out, str.ValueString())
+		}
+	}
+	return out
 }
 
 // requireNested reports arguments left out of a configured object. They are declared
@@ -349,11 +361,19 @@ func (r *userGroupResource) Read(ctx context.Context, req resource.ReadRequest, 
 		resp.Diagnostics.AddError("Error reading JumpCloud user group", err.Error())
 		return
 	}
+	// Exempt users split into included and excluded by membership. Checking each one costs a
+	// request per exemption instead of paging through every member of a large group.
 	var members []string
-	if g.Dynamic() && len(g.ExemptUserIDs()) > 0 {
-		if members, err = r.client.UserGroupMemberIDs(ctx, id); err != nil {
-			resp.Diagnostics.AddError("Error reading JumpCloud user group members", err.Error())
-			return
+	if g.Dynamic() {
+		for _, userID := range g.ExemptUserIDs() {
+			groups, err := r.client.UserGroupIDs(ctx, userID)
+			if err != nil {
+				resp.Diagnostics.AddError("Error reading JumpCloud user group memberships of user "+userID, err.Error())
+				return
+			}
+			if slices.Contains(groups, id) {
+				members = append(members, userID)
+			}
 		}
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupResourceModel(ctx, *g, members, &resp.Diagnostics))...)

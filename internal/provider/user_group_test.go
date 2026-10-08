@@ -373,6 +373,83 @@ resource "jumpcloud_user_group" "test" {
 	})
 }
 
+func TestUserGroupUnknownIncludedUserID(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	f.addUser(client.User{ID: "u1", Department: "Sales"})
+	f.addUser(client.User{ID: "u2", Department: "Engineering"})
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{{
+			// The user ID is only known at apply, so the set has an unknown element during plan.
+			Config: f.providerConfig() + `
+resource "terraform_data" "user" {
+  input = "u1"
+}
+
+resource "jumpcloud_user_group" "test" {
+  name = "eng"
+  membership_rule = {
+    query            = jsonencode({ filters = [{ field = "user.user_department", operation = "equals", value = "Engineering" }] })
+    include_user_ids = [terraform_data.user.output]
+    exclude_user_ids = ["u2"]
+  }
+}`,
+			Check: resource.TestCheckResourceAttr("jumpcloud_user_group.test", "membership_rule.include_user_ids.0", "u1"),
+		}},
+	})
+}
+
+func TestUserGroupUpdateIncludeFails(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	f.addUser(client.User{ID: "u1", Department: "Engineering"})
+	f.addUser(client.User{ID: "u2", Department: "Sales"})
+	const addr = "jumpcloud_user_group.test"
+	config := func(include string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_user_group" "test" {
+  name = "eng"
+  membership_rule = {
+    query            = jsonencode({ filters = [{ field = "user.user_department", operation = "equals", value = "Engineering" }] })
+    include_user_ids = [%s]
+  }
+}`, include)
+	}
+	var id string
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config(""), Check: resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil })},
+			{
+				PreConfig:   func() { f.setFailAdd("u2") },
+				Config:      config(`"u2"`),
+				ExpectError: regexp.MustCompile(`Error adding user u2`),
+			},
+			{
+				// The failed include is exempt but not a member, so state shows it as excluded and
+				// the next plan retries it.
+				Config:             config(`"u2"`),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				PreConfig: func() { f.setFailAdd("") },
+				Config:    config(`"u2"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "membership_rule.include_user_ids.0", "u2"),
+					resource.TestCheckResourceAttr(addr, "membership_rule.exclude_user_ids.#", "0"),
+					func(*terraform.State) error {
+						if !f.isMember(id, "u2") {
+							return fmt.Errorf("u2 is not a member of %s", id)
+						}
+						return nil
+					},
+				),
+			},
+		},
+	})
+}
+
 func TestUserGroupUnknownExemptUser(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	f.addUser(client.User{ID: "u1", Department: "Engineering"})

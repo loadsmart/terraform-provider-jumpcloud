@@ -155,6 +155,12 @@ func (f *fakeJumpCloud) addMember(groupID, userID string) {
 	f.members[groupID] = append(f.members[groupID], userID)
 }
 
+func (f *fakeJumpCloud) setFailAdd(userID string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failAdd = userID
+}
+
 func (f *fakeJumpCloud) isMember(groupID, userID string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -330,6 +336,7 @@ func (f *fakeJumpCloud) changeMember(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	g, ok := f.groups[groupID]
 	known := f.knownUser(op.ID)
+	failAdd := f.failAdd
 	f.mu.Unlock()
 	if !ok {
 		writeFake(w, http.StatusBadRequest, map[string]string{"error": "INVALID_ARGUMENT", "message": "user_group not found"})
@@ -341,7 +348,7 @@ func (f *fakeJumpCloud) changeMember(w http.ResponseWriter, r *http.Request) {
 	}
 	member := f.isMember(groupID, op.ID)
 	switch {
-	case op.Op == "add" && op.ID == f.failAdd:
+	case op.Op == "add" && op.ID == failAdd:
 		writeFake(w, http.StatusInternalServerError, map[string]string{"message": "Internal Server Error"})
 	case op.Op == "add" && member:
 		writeFake(w, http.StatusConflict, map[string]string{"message": "Already Exists"})

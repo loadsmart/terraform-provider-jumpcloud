@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/helper/resource"
+	"github.com/hashicorp/terraform-plugin-testing/plancheck"
 	"github.com/hashicorp/terraform-plugin-testing/terraform"
 
 	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
@@ -117,6 +118,39 @@ resource "jumpcloud_user_group_members" "test" {
 				Config:             config(static),
 				PlanOnly:           true,
 				ExpectNonEmptyPlan: true,
+			},
+		},
+	})
+}
+
+func TestUserGroupMembersCreateKeepsResourceWhenAddFails(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	f.addUser(client.User{ID: "u1"})
+	group := f.addGroup("devs", "")
+	const addr = "jumpcloud_user_group_members.test"
+	config := func(users ...string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_user_group_members" "test" {
+  group_id = %q
+  user_ids = [%s]
+}`, group, quoted(users))
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// A failed add only warns, so the resource is not tainted; the plan still shows it.
+				Config:             config("u1", "missing"),
+				ExpectNonEmptyPlan: true,
+			},
+			{
+				// Fixing the list needs no change, instead of removing and re-adding every member.
+				Config: config("u1"),
+				ConfigPlanChecks: resource.ConfigPlanChecks{
+					PreApply: []plancheck.PlanCheck{plancheck.ExpectResourceAction(addr, plancheck.ResourceActionNoop)},
+				},
+				Check: resource.TestCheckResourceAttr(addr, "user_ids.#", "1"),
 			},
 		},
 	})
