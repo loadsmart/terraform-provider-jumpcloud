@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.2.0...v0.3.0) (2026-10-08)
+
+
+### Features
+
+* add oidc applications and application associations ([#6](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/6)) ([d109cf9](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/d109cf9158dec9faf50d29a6d6f3076fd9b640c9))
+
 ## [0.2.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.1.0...v0.2.0) (2026-10-08)
 
 
