@@ -58,7 +58,7 @@ data "jumpcloud_users" "cto" {
 - `description` (String) Group description.
 - `email` (String) Group email address. Kept as is when not set; `""` clears it.
 - `ldap_groups` (List of String) LDAP group names. JumpCloud sets it to the group name on create and keeps it on rename. Kept as is when not set.
-- `membership_rule` (Attributes) Makes the group dynamic: JumpCloud adds and removes members by this rule within seconds of a change. Removing it makes the group static and keeps its current members as direct members. Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed. (see [below for nested schema](#nestedatt--membership_rule))
+- `membership_rule` (Attributes) Makes the group dynamic: JumpCloud adds and removes members by this rule. Removing it makes the group static and keeps its current members as direct members. Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed. (see [below for nested schema](#nestedatt--membership_rule))
 - `posix_groups` (Attributes List) POSIX groups. JumpCloud does not allow changing or removing them once set, so a plan that does fails. To get different POSIX groups, run `terraform taint` on the group so the next apply replaces it. Kept as is when not set. (see [below for nested schema](#nestedatt--posix_groups))
 - `radius_reply` (Attributes List) RADIUS reply attributes sent for members. Kept as is when not set; `[]` removes them. (see [below for nested schema](#nestedatt--radius_reply))
 - `samba_enabled` (Boolean) Whether Samba authentication is enabled for the group in JumpCloud LDAP. Kept as is when not set.

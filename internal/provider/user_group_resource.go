@@ -115,7 +115,7 @@ func (r *userGroupResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"membership_rule": schema.SingleNestedAttribute{
-				MarkdownDescription: "Makes the group dynamic: JumpCloud adds and removes members by this rule within seconds of a change. " +
+				MarkdownDescription: "Makes the group dynamic: JumpCloud adds and removes members by this rule. " +
 					"Removing it makes the group static and keeps its current members as direct members. " +
 					"Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed.",
 				Optional: true,
@@ -314,7 +314,7 @@ func (r *userGroupResource) Create(ctx context.Context, req resource.CreateReque
 
 	g, err := r.client.CreateUserGroup(ctx, change)
 	if err != nil {
-		resp.Diagnostics.AddError("Error creating JumpCloud user group", err.Error())
+		resp.Diagnostics.AddError("Error creating JumpCloud user group", writeErrorDetail(err, change))
 		return
 	}
 	// The group exists now, so member failures are warnings: an error would taint it and the
@@ -375,7 +375,7 @@ func (r *userGroupResource) Update(ctx context.Context, req resource.UpdateReque
 
 	g, err := r.client.UpdateUserGroup(ctx, plan.ID.ValueString(), change)
 	if err != nil {
-		resp.Diagnostics.AddError("Error updating JumpCloud user group", err.Error())
+		resp.Diagnostics.AddError("Error updating JumpCloud user group", writeErrorDetail(err, change))
 		return
 	}
 	members := r.applyExemptions(ctx, g.ID, plan.MembershipRule, &resp.Diagnostics)
@@ -396,6 +396,15 @@ func (r *userGroupResource) Delete(ctx context.Context, req resource.DeleteReque
 
 func (r *userGroupResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+// writeErrorDetail explains a create or update failure. JumpCloud answers a bare 404 when an
+// exemption names a user that does not exist.
+func writeErrorDetail(err error, ch client.UserGroupChange) string {
+	if errors.Is(err, client.ErrNotFound) && ch.Rule != nil && len(ch.Rule.ExemptUserIDs) > 0 {
+		return "The group or a user in include_user_ids or exclude_user_ids does not exist."
+	}
+	return err.Error()
 }
 
 // applyExemptions makes included users members and excluded users non-members. An exemption

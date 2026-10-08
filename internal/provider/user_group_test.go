@@ -373,9 +373,42 @@ resource "jumpcloud_user_group" "test" {
 	})
 }
 
+func TestUserGroupUnknownExemptUser(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	f.addUser(client.User{ID: "u1", Department: "Engineering"})
+	config := func(rule string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_user_group" "test" {
+  name = "eng"
+  membership_rule = {
+    query = jsonencode({ filters = [{ field = "user.user_department", operation = "equals", value = "Engineering" }] })
+    %s
+  }
+}`, rule)
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// JumpCloud rejects an exemption for a missing user with a bare 404.
+				Config:      config(`include_user_ids = ["ghost"]`),
+				ExpectError: regexp.MustCompile(`user in include_user_ids or exclude_user_ids does not\s+exist`),
+			},
+			{Config: config("")},
+			{
+				Config:      config(`exclude_user_ids = ["ghost"]`),
+				ExpectError: regexp.MustCompile(`user in include_user_ids or exclude_user_ids does not\s+exist`),
+			},
+		},
+	})
+}
+
 func TestUserGroupCreateKeepsGroupWhenIncludeFails(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	f.addUser(client.User{ID: "u1", Department: "Engineering"})
+	f.addUser(client.User{ID: "u2", Department: "Sales"})
+	f.failAdd = "u2"
 	const addr = "jumpcloud_user_group.test"
 	config := func(include string) string {
 		return f.providerConfig() + fmt.Sprintf(`
@@ -393,8 +426,8 @@ resource "jumpcloud_user_group" "test" {
 		ProtoV6ProviderFactories: testProviderFactories,
 		Steps: []resource.TestStep{
 			{
-				// An unknown user only warns, so the group is not tainted; the plan still shows the include.
-				Config:             config(`"ghost"`),
+				// A failed member add only warns, so the group is not tainted; the plan still shows the include.
+				Config:             config(`"u2"`),
 				ExpectNonEmptyPlan: true,
 				Check:              resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
 			},

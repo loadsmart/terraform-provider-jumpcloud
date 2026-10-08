@@ -29,6 +29,7 @@ type fakeJumpCloud struct {
 	groups  map[string]fakeGroup
 	members map[string][]string // group ID -> user IDs
 	users   []client.User
+	failAdd string // user ID whose member adds fail with 500
 	apps    map[string]client.Application
 	sso     map[string]fakeSSO
 	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
@@ -231,6 +232,13 @@ func (f *fakeJumpCloud) writeGroup(w http.ResponseWriter, r *http.Request, id st
 			writeFake(w, http.StatusBadRequest, map[string]string{"message": "member query exemptions must be of type user"})
 			return
 		}
+		f.mu.Lock()
+		known := f.knownUser(e["id"])
+		f.mu.Unlock()
+		if !known {
+			writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+			return
+		}
 		e["organizationId"] = "org"
 	}
 	if g.Attributes == nil {
@@ -334,6 +342,8 @@ func (f *fakeJumpCloud) changeMember(w http.ResponseWriter, r *http.Request) {
 	}
 	member := f.isMember(groupID, op.ID)
 	switch {
+	case op.Op == "add" && op.ID == f.failAdd:
+		writeFake(w, http.StatusInternalServerError, map[string]string{"message": "Internal Server Error"})
 	case op.Op == "add" && member:
 		writeFake(w, http.StatusConflict, map[string]string{"message": "Already Exists"})
 	case op.Op == "add" && g.dynamic() && !g.exempt(op.ID):
