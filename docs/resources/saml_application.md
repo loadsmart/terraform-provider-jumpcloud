@@ -3,18 +3,15 @@
 page_title: "jumpcloud_saml_application Resource - jumpcloud"
 subcategory: ""
 description: |-
-  Manages a SAML application in JumpCloud: a custom app (template = "saml2") or an app from JumpCloud's catalog, such as aws-sso for AWS IAM Identity Center. JumpCloud generates the IdP certificate; give idp_certificate, sso_url, and idp_entity_id to the service provider. Give users and groups access with jumpcloud_application_association.
+  Manages a SAML application in JumpCloud: a custom app (template = "saml2") or an app from JumpCloud's catalog. JumpCloud generates the IdP certificate; give idp_certificate, sso_url, and idp_entity_id to the service provider. Give users and groups access with jumpcloud_application_association.
   Catalog templates have fewer settings than custom apps, and apply fails if you set one the template lacks. Settings you leave out keep their current values, such as ones set in the admin console.
-  ~> User provisioning (SCIM), such as pushing users and groups to AWS IAM Identity Center, has no API: configure it in the admin console under the application's Identity Management tab.
 ---
 
 # jumpcloud_saml_application (Resource)
 
-Manages a SAML application in JumpCloud: a custom app (`template = "saml2"`) or an app from JumpCloud's catalog, such as `aws-sso` for AWS IAM Identity Center. JumpCloud generates the IdP certificate; give `idp_certificate`, `sso_url`, and `idp_entity_id` to the service provider. Give users and groups access with `jumpcloud_application_association`.
+Manages a SAML application in JumpCloud: a custom app (`template = "saml2"`) or an app from JumpCloud's catalog. JumpCloud generates the IdP certificate; give `idp_certificate`, `sso_url`, and `idp_entity_id` to the service provider. Give users and groups access with `jumpcloud_application_association`.
 
 Catalog templates have fewer settings than custom apps, and apply fails if you set one the template lacks. Settings you leave out keep their current values, such as ones set in the admin console.
-
-~> User provisioning (SCIM), such as pushing users and groups to AWS IAM Identity Center, has no API: configure it in the admin console under the application's Identity Management tab.
 
 ## Example Usage
 
@@ -34,8 +31,7 @@ resource "jumpcloud_saml_application" "n8n" {
   }
 }
 
-# AWS IAM Identity Center from JumpCloud's catalog. Enable user provisioning (SCIM)
-# in the admin console; it has no API.
+# AWS IAM Identity Center from JumpCloud's catalog.
 resource "jumpcloud_saml_application" "aws" {
   display_label  = "AWS IAM Identity Center"
   template       = "aws-sso"
@@ -61,7 +57,7 @@ output "aws_idp_certificate" {
 
 ### Required
 
-- `acs_urls` (List of String) Assertion consumer service URLs. The first one is the default. Catalog apps such as `aws-sso` take one.
+- `acs_urls` (List of String) Assertion consumer service URLs. The first one is the default.
 - `display_label` (String) Name shown in the admin console and the user portal.
 - `sp_entity_id` (String) Service provider entity ID (audience).
 
@@ -78,7 +74,7 @@ output "aws_idp_certificate" {
 - `sign_assertion` (Boolean) Whether JumpCloud signs the SAML assertion. Kept as is when not set.
 - `sign_response` (Boolean) Whether JumpCloud signs the SAML response. Kept as is when not set.
 - `sso_url` (String) IdP single sign-on URL. Defaults to `https://sso.jumpcloud.com/saml2/` followed by the display label in lowercase with dashes, and stays the same when the label changes. JumpCloud does not check that it is unique.
-- `template` (String) Catalog template name: `saml2` for a custom app, or a catalog app such as `aws-sso`. Changing it replaces the application.
+- `template` (String) Catalog template name: `saml2` for a custom app, or the name of a catalog app. Changing it replaces the application.
 - `user_attributes` (Map of String) Attributes taken from the user, from attribute name to JumpCloud user field such as `firstname` or `email`. Kept as is when not set; `{}` removes them.
 
 ### Read-Only

@@ -13,8 +13,7 @@ resource "jumpcloud_saml_application" "n8n" {
   }
 }
 
-# AWS IAM Identity Center from JumpCloud's catalog. Enable user provisioning (SCIM)
-# in the admin console; it has no API.
+# AWS IAM Identity Center from JumpCloud's catalog.
 resource "jumpcloud_saml_application" "aws" {
   display_label  = "AWS IAM Identity Center"
   template       = "aws-sso"

@@ -114,13 +114,11 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 	}
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a SAML application in JumpCloud: a custom app (`template = \"saml2\"`) or an app from " +
-			"JumpCloud's catalog, such as `aws-sso` for AWS IAM Identity Center. JumpCloud generates the IdP certificate; " +
+			"JumpCloud's catalog. JumpCloud generates the IdP certificate; " +
 			"give `idp_certificate`, `sso_url`, and `idp_entity_id` to the service provider. " +
 			"Give users and groups access with `jumpcloud_application_association`.\n\n" +
 			"Catalog templates have fewer settings than custom apps, and apply fails if you set one the template lacks. " +
-			"Settings you leave out keep their current values, such as ones set in the admin console.\n\n" +
-			"~> User provisioning (SCIM), such as pushing users and groups to AWS IAM Identity Center, has no API: " +
-			"configure it in the admin console under the application's Identity Management tab.",
+			"Settings you leave out keep their current values, such as ones set in the admin console.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{MarkdownDescription: "Application ID.", Computed: true, PlanModifiers: keep},
 			"display_label": schema.StringAttribute{
@@ -128,7 +126,7 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				Required:            true,
 			},
 			"template": schema.StringAttribute{
-				MarkdownDescription: "Catalog template name: `saml2` for a custom app, or a catalog app such as `aws-sso`. Changing it replaces the application.",
+				MarkdownDescription: "Catalog template name: `saml2` for a custom app, or the name of a catalog app. Changing it replaces the application.",
 				Optional:            true,
 				Computed:            true,
 				Default:             stringdefault.StaticString(client.SAMLTemplateCustom),
@@ -152,7 +150,7 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				Required:            true,
 			},
 			"acs_urls": schema.ListAttribute{
-				MarkdownDescription: "Assertion consumer service URLs. The first one is the default. Catalog apps such as `aws-sso` take one.",
+				MarkdownDescription: "Assertion consumer service URLs. The first one is the default.",
 				Required:            true,
 				ElementType:         types.StringType,
 			},

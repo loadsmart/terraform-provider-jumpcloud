@@ -86,7 +86,7 @@ type SAMLAttribute struct {
 }
 
 // ACSURLs returns the assertion consumer service URLs. Custom apps store them as a JSON
-// list in a string; templates such as aws-sso store a single plain URL.
+// list in a string; catalog templates store a single plain URL.
 func ACSURLs(raw json.RawMessage) []string {
 	var value string
 	if json.Unmarshal(raw, &value) != nil || value == "" {
@@ -151,8 +151,8 @@ func (d samlAppDocument) application() *SAMLApplication {
 	return a
 }
 
-// GetSAMLTemplate returns the catalog template with the given name, such as saml2 or
-// aws-sso, and errors when it does not exist or is not a SAML template.
+// GetSAMLTemplate returns the catalog template with the given name and errors when it
+// does not exist or is not a SAML template.
 func (c *Client) GetSAMLTemplate(ctx context.Context, name string) (*SAMLTemplate, error) {
 	type template struct {
 		Name        string `json:"name"`
