@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.3.1...v0.4.0) (2026-10-09)
+
+
+### Features
+
+* manage dynamic user groups and group members ([#13](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/13)) ([e4c3d4c](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/e4c3d4c47bca03e42d55f282956cac12f7624a79))
+
 ## [0.3.1](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.3.0...v0.3.1) (2026-10-08)
 
 
