@@ -738,3 +738,31 @@ func TestUserGroupMemberIDs(t *testing.T) {
 		t.Fatalf("requests = %+v", reqs)
 	}
 }
+
+func TestACSURLs(t *testing.T) {
+	tests := []struct {
+		name string
+		urls []string
+		want string
+	}{
+		{"one URL is stored plain", []string{"https://a/acs"}, `"https://a/acs"`},
+		{"several are a JSON list, first is default", []string{"https://a/acs", "https://b/acs"},
+			`"[{\"index\":\"0\",\"isDefault\":\"true\",\"url\":\"https://a/acs\"},{\"index\":\"1\",\"isDefault\":\"false\",\"url\":\"https://b/acs\"}]"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, _ := json.Marshal(ACSURLValue(tt.urls))
+			if string(raw) != tt.want {
+				t.Fatalf("ACSURLValue = %s, want %s", raw, tt.want)
+			}
+			if got := ACSURLs(raw); !reflect.DeepEqual(got, tt.urls) {
+				t.Fatalf("ACSURLs = %v, want %v", got, tt.urls)
+			}
+		})
+	}
+	// Apps made in the console store a single URL as a one-item list.
+	console := json.RawMessage(`"[{\"index\":\"0\",\"isDefault\":\"false\",\"url\":\"https://c/acs\"}]"`)
+	if got := ACSURLs(console); !reflect.DeepEqual(got, []string{"https://c/acs"}) {
+		t.Fatalf("ACSURLs(console) = %v", got)
+	}
+}
