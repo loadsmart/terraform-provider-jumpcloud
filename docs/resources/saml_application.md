@@ -3,16 +3,16 @@
 page_title: "jumpcloud_saml_application Resource - jumpcloud"
 subcategory: ""
 description: |-
-  Manages a SAML application in JumpCloud, either a custom one (template = "saml2") or one from JumpCloud's catalog, such as aws-sso for AWS IAM Identity Center. JumpCloud generates the IdP certificate (idp_certificate); give it, sso_url, and idp_entity_id to the service provider. Give users and groups access with jumpcloud_application_association.
-  Catalog templates support fewer settings than custom apps; setting one a template does not have fails on apply. Settings left out of the configuration keep the values set elsewhere, such as in the admin console.
+  Manages a SAML application in JumpCloud: a custom app (template = "saml2") or an app from JumpCloud's catalog, such as aws-sso for AWS IAM Identity Center. JumpCloud generates the IdP certificate; give idp_certificate, sso_url, and idp_entity_id to the service provider. Give users and groups access with jumpcloud_application_association.
+  Catalog templates have fewer settings than custom apps, and apply fails if you set one the template lacks. Settings you leave out keep their current values, such as ones set in the admin console.
   ~> User provisioning (SCIM), such as pushing users and groups to AWS IAM Identity Center, has no API: configure it in the admin console under the application's Identity Management tab.
 ---
 
 # jumpcloud_saml_application (Resource)
 
-Manages a SAML application in JumpCloud, either a custom one (`template = "saml2"`) or one from JumpCloud's catalog, such as `aws-sso` for AWS IAM Identity Center. JumpCloud generates the IdP certificate (`idp_certificate`); give it, `sso_url`, and `idp_entity_id` to the service provider. Give users and groups access with `jumpcloud_application_association`.
+Manages a SAML application in JumpCloud: a custom app (`template = "saml2"`) or an app from JumpCloud's catalog, such as `aws-sso` for AWS IAM Identity Center. JumpCloud generates the IdP certificate; give `idp_certificate`, `sso_url`, and `idp_entity_id` to the service provider. Give users and groups access with `jumpcloud_application_association`.
 
-Catalog templates support fewer settings than custom apps; setting one a template does not have fails on apply. Settings left out of the configuration keep the values set elsewhere, such as in the admin console.
+Catalog templates have fewer settings than custom apps, and apply fails if you set one the template lacks. Settings you leave out keep their current values, such as ones set in the admin console.
 
 ~> User provisioning (SCIM), such as pushing users and groups to AWS IAM Identity Center, has no API: configure it in the admin console under the application's Identity Management tab.
 
@@ -61,7 +61,7 @@ output "aws_idp_certificate" {
 
 ### Required
 
-- `acs_urls` (List of String) Assertion consumer service URLs. The first one is the default. Catalog templates usually take one.
+- `acs_urls` (List of String) Assertion consumer service URLs. The first one is the default. Catalog apps such as `aws-sso` take one.
 - `display_label` (String) Name shown in the admin console and the user portal.
 - `sp_entity_id` (String) Service provider entity ID (audience).
 
@@ -70,7 +70,7 @@ output "aws_idp_certificate" {
 - `constant_attributes` (Map of String) Attributes with the same value for every user, by attribute name. Kept as is when not set; `{}` removes them.
 - `default_relay_state` (String) Default relay state, the URL users land on after an IdP-initiated sign-in. Kept as is when not set.
 - `groups_attribute` (String) Name of the assertion attribute that lists the user's groups bound to the application; `""` stops sending groups. Kept as is when not set.
-- `idp_entity_id` (String) IdP entity ID JumpCloud sends to the service provider. Kept as is when not set.
+- `idp_entity_id` (String) IdP entity ID JumpCloud sends to the service provider. When not set on create, custom apps use the display label in lowercase with dashes, and catalog apps use their template's value. Kept as is when not set.
 - `idp_init_url` (String) URL users are sent to when they open the app from the JumpCloud portal. Kept as is when not set.
 - `name_id` (String) User attribute sent as the SAML subject NameID, such as `email` or `username`. Kept as is when not set.
 - `name_id_format` (String) NameID format, such as `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`. Kept as is when not set.

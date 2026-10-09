@@ -51,6 +51,8 @@ resource "jumpcloud_saml_application" "test" {
 					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
 					resource.TestCheckResourceAttr(addr, "template", "saml2"),
 					resource.TestCheckResourceAttr(addr, "sso_url", "https://sso.jumpcloud.com/saml2/n8n-production"),
+					// The custom template's IdP entity ID is empty, which service providers reject.
+					resource.TestCheckResourceAttr(addr, "idp_entity_id", "n8n-production"),
 					resource.TestCheckResourceAttr(addr, "show_in_portal", "false"),
 					resource.TestCheckResourceAttr(addr, "name_id", "email"),
 					resource.TestCheckResourceAttr(addr, "groups_attribute", ""),
@@ -76,6 +78,7 @@ resource "jumpcloud_saml_application" "test" {
 					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { return expect(v, id) }),
 					// The SSO URL is what the service provider trusts, so a new label keeps it.
 					resource.TestCheckResourceAttr(addr, "sso_url", "https://sso.jumpcloud.com/saml2/n8n-production"),
+					resource.TestCheckResourceAttr(addr, "idp_entity_id", "n8n-production"),
 					// An update must not regenerate the certificate the service provider has.
 					resource.TestCheckResourceAttrWith(addr, "idp_certificate", func(v string) error { return expect(v, cert) }),
 					resource.TestCheckResourceAttr(addr, "acs_urls.1", "https://n8n.example.com/acs2"),
@@ -200,5 +203,68 @@ resource "jumpcloud_saml_application" "test" {
 			ImportStateId: oidc,
 			ExpectError:   regexp.MustCompile(`not a SAML application`),
 		}},
+	})
+}
+
+func TestSAMLApplicationTemplateSwitchCheckedAtPlan(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_saml_application.test"
+	config := func(template string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_saml_application" "test" {
+  display_label = "app"
+  template      = %q
+  sp_entity_id  = "https://sp.example.com/m"
+  acs_urls      = ["https://sp.example.com/acs"]
+  name_id       = "email"
+}`, template)
+	}
+	var id string
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config("saml2"), Check: resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil })},
+			{
+				// Replacing the app with a template that lacks name_id fails before the old app is destroyed.
+				Config:      config("aws-sso"),
+				ExpectError: regexp.MustCompile(`template "aws-sso" has no name_id setting`),
+			},
+			{
+				Config:   config("saml2"),
+				PlanOnly: true,
+				Check: func(*terraform.State) error {
+					if _, _, ok := f.app(id); !ok {
+						return fmt.Errorf("application %s was deleted", id)
+					}
+					return nil
+				},
+			},
+		},
+	})
+}
+
+func TestSAMLApplicationUnsupportedSettingCheckedAtPlan(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	config := func(extra string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_saml_application" "aws" {
+  display_label = "AWS"
+  template      = "aws-sso"
+  sp_entity_id  = "https://sp.example.com/m"
+  acs_urls      = ["https://sp.example.com/acs"]
+  %s
+}`, extra)
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{Config: config("")},
+			{
+				Config:      config(`groups_attribute = "groups"`),
+				PlanOnly:    true,
+				ExpectError: regexp.MustCompile(`template "aws-sso" has no groups_attribute setting`),
+			},
+		},
 	})
 }

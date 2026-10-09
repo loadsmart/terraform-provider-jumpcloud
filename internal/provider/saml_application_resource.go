@@ -28,6 +28,7 @@ import (
 var (
 	_ resource.ResourceWithConfigure      = &samlApplicationResource{}
 	_ resource.ResourceWithImportState    = &samlApplicationResource{}
+	_ resource.ResourceWithModifyPlan     = &samlApplicationResource{}
 	_ resource.ResourceWithValidateConfig = &samlApplicationResource{}
 )
 
@@ -112,12 +113,12 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 		}
 	}
 	resp.Schema = schema.Schema{
-		MarkdownDescription: "Manages a SAML application in JumpCloud, either a custom one (`template = \"saml2\"`) or one from " +
-			"JumpCloud's catalog, such as `aws-sso` for AWS IAM Identity Center. JumpCloud generates the IdP certificate " +
-			"(`idp_certificate`); give it, `sso_url`, and `idp_entity_id` to the service provider. " +
+		MarkdownDescription: "Manages a SAML application in JumpCloud: a custom app (`template = \"saml2\"`) or an app from " +
+			"JumpCloud's catalog, such as `aws-sso` for AWS IAM Identity Center. JumpCloud generates the IdP certificate; " +
+			"give `idp_certificate`, `sso_url`, and `idp_entity_id` to the service provider. " +
 			"Give users and groups access with `jumpcloud_application_association`.\n\n" +
-			"Catalog templates support fewer settings than custom apps; setting one a template does not have fails on apply. " +
-			"Settings left out of the configuration keep the values set elsewhere, such as in the admin console.\n\n" +
+			"Catalog templates have fewer settings than custom apps, and apply fails if you set one the template lacks. " +
+			"Settings you leave out keep their current values, such as ones set in the admin console.\n\n" +
 			"~> User provisioning (SCIM), such as pushing users and groups to AWS IAM Identity Center, has no API: " +
 			"configure it in the admin console under the application's Identity Management tab.",
 		Attributes: map[string]schema.Attribute{
@@ -151,11 +152,12 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				Required:            true,
 			},
 			"acs_urls": schema.ListAttribute{
-				MarkdownDescription: "Assertion consumer service URLs. The first one is the default. Catalog templates usually take one.",
+				MarkdownDescription: "Assertion consumer service URLs. The first one is the default. Catalog apps such as `aws-sso` take one.",
 				Required:            true,
 				ElementType:         types.StringType,
 			},
-			"idp_entity_id":       optionalString("IdP entity ID JumpCloud sends to the service provider."),
+			"idp_entity_id": optionalString("IdP entity ID JumpCloud sends to the service provider. When not set on create, " +
+				"custom apps use the display label in lowercase with dashes, and catalog apps use their template's value."),
 			"idp_init_url":        optionalString("URL users are sent to when they open the app from the JumpCloud portal."),
 			"default_relay_state": optionalString("Default relay state, the URL users land on after an IdP-initiated sign-in."),
 			"name_id":             optionalString("User attribute sent as the SAML subject NameID, such as `email` or `username`."),
@@ -188,6 +190,77 @@ func (r *samlApplicationResource) ValidateConfig(ctx context.Context, req resour
 	}
 }
 
+// ModifyPlan rejects settings the template does not have at plan time. Failing on apply
+// could come after Terraform already destroyed apps in the same run.
+func (r *samlApplicationResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+	if req.Plan.Raw.IsNull() || r.client == nil {
+		return
+	}
+	var plan, config samlApplicationModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() || plan.Template.IsUnknown() {
+		return
+	}
+
+	var supports func(string) bool
+	if !req.State.Raw.IsNull() {
+		var state samlApplicationModel
+		resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		if state.Template.Equal(plan.Template) {
+			// State holds every setting the template has and null for the rest.
+			supported := map[string]bool{}
+			for _, s := range setSettings(state) {
+				supported[s.key] = true
+			}
+			supports = func(key string) bool { return supported[key] }
+		}
+	}
+	if supports == nil {
+		template, err := r.client.GetSAMLTemplate(ctx, plan.Template.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddAttributeError(path.Root("template"), "Unknown JumpCloud SAML template", err.Error())
+			return
+		}
+		supports = template.Supports
+	}
+	for _, s := range setSettings(config) {
+		if !supports(s.key) {
+			resp.Diagnostics.AddAttributeError(path.Root(s.attr), "Setting not supported by template",
+				fmt.Sprintf("JumpCloud template %q has no %s setting.", plan.Template.ValueString(), s.attr))
+		}
+	}
+}
+
+type samlSetting struct{ attr, key string }
+
+// setSettings lists the optional settings that are not null in a model.
+func setSettings(config samlApplicationModel) []samlSetting {
+	var out []samlSetting
+	for _, s := range samlStringSettings {
+		if !s.get(&config).IsNull() {
+			out = append(out, samlSetting{s.attr, s.key})
+		}
+	}
+	for _, s := range samlBoolSettings {
+		if !s.get(&config).IsNull() {
+			out = append(out, samlSetting{s.attr, s.key})
+		}
+	}
+	if !config.GroupsAttribute.IsNull() {
+		out = append(out, samlSetting{"groups_attribute", client.SAMLIncludeGroups})
+	}
+	for _, s := range samlAttributeSettings {
+		if !s.get(&config).IsNull() {
+			out = append(out, samlSetting{s.attr, s.key})
+		}
+	}
+	return out
+}
+
 func (r *samlApplicationResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = providerClient(req.ProviderData, &resp.Diagnostics)
 }
@@ -204,9 +277,14 @@ func (r *samlApplicationResource) Create(ctx context.Context, req resource.Creat
 		resp.Diagnostics.AddAttributeError(path.Root("template"), "Unknown JumpCloud SAML template", err.Error())
 		return
 	}
-	settings := samlSettings(ctx, plan, config, func(key string) bool { return template.Settings[key] }, template.Name, &resp.Diagnostics)
+	settings := samlSettings(ctx, plan, config, template.Supports, template.Name, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+	// Service providers reject an empty issuer, which is the custom template's default.
+	if _, set := settings[client.SAMLIdPEntityID]; !set && template.Supports(client.SAMLIdPEntityID) &&
+		configString(template.Defaults[client.SAMLIdPEntityID]) == "" {
+		settings[client.SAMLIdPEntityID] = slug(plan.DisplayLabel.ValueString())
 	}
 	ssoURL := plan.SSOURL.ValueString()
 	if config.SSOURL.IsNull() {

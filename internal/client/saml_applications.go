@@ -42,8 +42,14 @@ var ErrNotSAML = errors.New("jumpcloud: application is not a SAML application")
 type SAMLTemplate struct {
 	Name        string
 	DisplayName string
-	// Settings are the config keys the template supports.
-	Settings map[string]bool
+	// Defaults are the template's config values by key, so they also list the keys it supports.
+	Defaults map[string]json.RawMessage
+}
+
+// Supports reports whether the template has the config key.
+func (t SAMLTemplate) Supports(key string) bool {
+	_, ok := t.Defaults[key]
+	return ok
 }
 
 // SAMLApplication is a SAML application with its config values by key.
@@ -154,7 +160,9 @@ func (c *Client) GetSAMLTemplate(ctx context.Context, name string) (*SAMLTemplat
 		SSO         struct {
 			Type string `json:"type"`
 		} `json:"sso"`
-		Config map[string]json.RawMessage `json:"config"`
+		Config map[string]struct {
+			Value json.RawMessage `json:"value"`
+		} `json:"config"`
 	}
 	templates, err := list[template](ctx, c, "/api/application-templates", v1Filters(map[string]string{"name": name}), true)
 	if err != nil {
@@ -167,9 +175,9 @@ func (c *Client) GetSAMLTemplate(ctx context.Context, name string) (*SAMLTemplat
 		if t.SSO.Type != "saml" {
 			return nil, fmt.Errorf("jumpcloud: application template %q is not a SAML template (type %q)", name, t.SSO.Type)
 		}
-		out := &SAMLTemplate{Name: t.Name, DisplayName: t.DisplayName, Settings: map[string]bool{}}
-		for k := range t.Config {
-			out.Settings[k] = true
+		out := &SAMLTemplate{Name: t.Name, DisplayName: t.DisplayName, Defaults: map[string]json.RawMessage{}}
+		for k, v := range t.Config {
+			out.Defaults[k] = v.Value
 		}
 		return out, nil
 	}
