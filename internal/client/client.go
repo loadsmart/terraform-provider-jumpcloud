@@ -72,6 +72,11 @@ func New(baseURL, apiKey, orgID, userAgent string) *Client {
 // do sends a request and decodes a JSON response into out when out is non-nil.
 // It retries rate-limited requests, and server errors on idempotent methods.
 func (c *Client) do(ctx context.Context, method, path string, query url.Values, in, out any) error {
+	return c.doWithHeader(ctx, method, path, query, nil, in, out)
+}
+
+// doWithHeader is do with extra request headers.
+func (c *Client) doWithHeader(ctx context.Context, method, path string, query url.Values, header http.Header, in, out any) error {
 	var body []byte
 	if in != nil {
 		var err error
@@ -99,6 +104,7 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 		if in != nil {
 			req.Header.Set("Content-Type", "application/json")
 		}
+		maps.Copy(req.Header, header)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {

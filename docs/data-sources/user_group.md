@@ -28,4 +28,7 @@ data "jumpcloud_user_group" "engineering" {
 ### Read-Only
 
 - `description` (String) Group description.
+- `email` (String) Group email address.
 - `id` (String) User group ID.
+- `membership_method` (String) `STATIC` or `NOTSET` for static groups, `DYNAMIC_AUTOMATED` or `DYNAMIC_REVIEW_REQUIRED` for dynamic ones.
+- `query` (String) Membership rule as JSON for dynamic groups, empty for static groups.

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -125,6 +126,56 @@ resource "jumpcloud_user_group_memberships" "test" {
 				ExpectError: regexp.MustCompile(`User u1 or user group ` + gone + ` does not exist`),
 			},
 			{Config: config(), Check: resource.TestCheckResourceAttr(addr, "group_ids.#", "0")},
+		},
+	})
+}
+
+func TestUserGroupMembershipsDynamicGroups(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	f.addUser(client.User{ID: "u1", Department: "Engineering"})
+	static, dynamic := f.addGroup("static", ""), f.addGroup("dynamic", "")
+	f.editGroup(dynamic, func(g *fakeGroup) {
+		g.MembershipMethod = "DYNAMIC_AUTOMATED"
+		g.MemberQuery = json.RawMessage(`{"filters":[{"field":"user.user_department","operation":"equals","value":"Engineering"}]}`)
+	})
+	f.addMember(static, "u1")
+
+	const addr = "jumpcloud_user_group_memberships.test"
+	config := func(groups ...string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_user_group_memberships" "test" {
+  user_id   = "u1"
+  group_ids = [%s]
+}`, quoted(groups))
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config:      config(dynamic),
+				ExpectError: regexp.MustCompile(`(?s)dynamic.*membership_rule.include_user_ids`),
+			},
+			{Config: config(static)},
+			{
+				// Import adopts direct memberships of static groups only.
+				ResourceName:  addr,
+				ImportState:   true,
+				ImportStateId: "u1",
+				ImportStateCheck: func(states []*terraform.InstanceState) error {
+					if got := states[0].Attributes["group_ids.0"]; states[0].Attributes["group_ids.#"] != "1" || got != static {
+						return fmt.Errorf("imported %v, want only %s", states[0].Attributes, static)
+					}
+					return nil
+				},
+			},
+			{
+				// A user deleted outside Terraform is removed from state.
+				PreConfig:          func() { f.deleteUser("u1") },
+				Config:             config(static),
+				PlanOnly:           true,
+				ExpectNonEmptyPlan: true,
+			},
 		},
 	})
 }
