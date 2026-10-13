@@ -108,12 +108,20 @@ func (f *fakeJumpCloud) getApp(w http.ResponseWriter, r *http.Request) {
 		writeFake(w, http.StatusOK, app.doc)
 		return
 	}
-	a, _, ok := f.app(r.PathValue("id"))
+	a, sso, ok := f.app(r.PathValue("id"))
 	if !ok {
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 		return
 	}
-	writeFake(w, http.StatusOK, a)
+	// OIDC apps report sso.type "oidc"; bookmarks use their template name as the type.
+	doc := map[string]any{}
+	_ = json.Unmarshal(fakeJSON(a), &doc)
+	ssoType := a.Name
+	if sso.OIDC != nil {
+		ssoType = "oidc"
+	}
+	doc["sso"] = map[string]any{"type": ssoType, "hidden": sso.Hidden}
+	writeFake(w, http.StatusOK, doc)
 }
 
 func (f *fakeJumpCloud) renameApp(w http.ResponseWriter, r *http.Request) {
