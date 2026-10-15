@@ -17,6 +17,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/objectplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
@@ -49,6 +50,7 @@ type userGroupResourceModel struct {
 	SambaEnabled     types.Bool           `tfsdk:"samba_enabled"`
 	LDAPGroups       types.List           `tfsdk:"ldap_groups"`
 	POSIXGroups      types.List           `tfsdk:"posix_groups"`
+	CustomAttributes types.Map            `tfsdk:"custom_attributes"`
 	MembershipMethod types.String         `tfsdk:"membership_method"`
 	RuleErrors       types.List           `tfsdk:"rule_errors"`
 }
@@ -91,7 +93,9 @@ func (r *userGroupResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Manages a JumpCloud user group. A group is static, with members added directly " +
 			"(see `jumpcloud_user_group_members` and `jumpcloud_user_group_memberships`), or dynamic, with members decided by `membership_rule`. " +
-			"Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console.",
+			"Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console. " +
+			"Importing a group does not read its `custom_attributes`, because the provider only manages the ones a configuration has set, " +
+			"so the first plan after an import writes the configured attributes again.",
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				MarkdownDescription: "User group ID.",
@@ -117,7 +121,8 @@ func (r *userGroupResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 			"membership_rule": schema.SingleNestedAttribute{
 				MarkdownDescription: "Makes the group dynamic: JumpCloud adds and removes members by this rule. " +
 					"Removing it makes the group static and keeps its current members as direct members. " +
-					"Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed.",
+					"Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed. " +
+					"JumpCloud stores `custom_attributes` on a dynamic group but its members do not inherit them, so set those attributes on the users instead.",
 				Optional: true,
 				Attributes: map[string]schema.Attribute{
 					"query": schema.StringAttribute{
@@ -206,6 +211,19 @@ func (r *userGroupResource) Schema(_ context.Context, _ resource.SchemaRequest, 
 					},
 				},
 			},
+			"custom_attributes": schema.MapAttribute{
+				MarkdownDescription: "Attributes the group's members inherit, each a JSON value built with `jsonencode`, for example " +
+					"`{ department = jsonencode(\"Example\"), seats = jsonencode(42), office = jsonencode({ city = \"Springfield\" }) }`. " +
+					"A JSON string, number, boolean, or object is accepted; a number holds at most 9 digits, so longer ones go in a string. " +
+					"Only the attributes this configuration has set are managed: ones added elsewhere, such as in the admin console, are left alone and stay out of state. " +
+					"Removing an attribute from the map removes it from the group. " +
+					"A user's own attributes win over the group's, and between groups the most recently created attribute wins. " +
+					"Members of a dynamic group do not inherit these; see the `membership_rule` note.",
+				Optional:      true,
+				Computed:      true,
+				ElementType:   jsontypes.NormalizedType{},
+				PlanModifiers: []planmodifier.Map{mapplanmodifier.UseStateForUnknown()},
+			},
 			"membership_method": schema.StringAttribute{
 				MarkdownDescription: "How JumpCloud decides members: `STATIC` or `NOTSET` for static groups, `DYNAMIC_AUTOMATED` or `DYNAMIC_REVIEW_REQUIRED` for dynamic ones.",
 				Computed:            true,
@@ -248,9 +266,11 @@ func (r *userGroupResource) ValidateConfig(ctx context.Context, req resource.Val
 	// the model's struct pointer cannot hold.
 	var sudo, ruleObj types.Object
 	var radius, posix types.List
+	var custom types.Map
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("sudo"), &sudo)...)
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("radius_reply"), &radius)...)
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("posix_groups"), &posix)...)
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("custom_attributes"), &custom)...)
 	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("membership_rule"), &ruleObj)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -265,8 +285,26 @@ func (r *userGroupResource) ValidateConfig(ctx context.Context, req resource.Val
 		}
 	}
 
+	for name, value := range custom.Elements() {
+		p := path.Root("custom_attributes").AtMapKey(name)
+		if slices.Contains(client.ManagedAttributes, name) {
+			resp.Diagnostics.AddAttributeError(p, "Reserved attribute name",
+				fmt.Sprintf("The attribute %q has a meaning to JumpCloud and is set through its own argument instead.", name))
+		}
+		if value.IsNull() {
+			resp.Diagnostics.AddAttributeError(p, "Missing attribute value",
+				fmt.Sprintf("The attribute %q has no value. Remove it from custom_attributes to remove it from the group.", name))
+		}
+	}
+
 	if ruleObj.IsNull() || ruleObj.IsUnknown() {
 		return
+	}
+	if len(custom.Elements()) > 0 {
+		resp.Diagnostics.AddAttributeWarning(path.Root("custom_attributes"), "Custom attributes on a dynamic group",
+			"JumpCloud stores these attributes on the group but members of a dynamic group do not inherit them, "+
+				"so they do not reach an application's SAML assertion. Set them on the users instead. "+
+				"See https://jumpcloud.com/support/group-inherited-user-attributes.")
 	}
 	var rule membershipRuleModel
 	resp.Diagnostics.Append(ruleObj.As(ctx, &rule, basetypes.ObjectAsOptions{})...)
@@ -319,7 +357,8 @@ func (r *userGroupResource) Create(ctx context.Context, req resource.CreateReque
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	change := plan.change(ctx, config, &resp.Diagnostics)
+	// Nothing is managed yet, so the create has no custom attribute to remove.
+	change := plan.change(ctx, config, types.MapNull(jsontypes.NormalizedType{}), &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -333,7 +372,7 @@ func (r *userGroupResource) Create(ctx context.Context, req resource.CreateReque
 	// apply would recreate it. State must then match the plan; the next refresh corrects it.
 	var memberDiags diag.Diagnostics
 	members := r.applyExemptions(ctx, g.ID, plan.MembershipRule, &memberDiags)
-	state := newUserGroupResourceModel(ctx, *g, members, &resp.Diagnostics)
+	state := newUserGroupResourceModel(ctx, *g, members, plan.CustomAttributes, &resp.Diagnostics)
 	if len(memberDiags) > 0 && state.MembershipRule != nil {
 		state.MembershipRule.IncludeUserIDs = plan.MembershipRule.IncludeUserIDs
 		state.MembershipRule.ExcludeUserIDs = plan.MembershipRule.ExcludeUserIDs
@@ -376,17 +415,18 @@ func (r *userGroupResource) Read(ctx context.Context, req resource.ReadRequest, 
 			}
 		}
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupResourceModel(ctx, *g, members, &resp.Diagnostics))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupResourceModel(ctx, *g, members, state.CustomAttributes, &resp.Diagnostics))...)
 }
 
 func (r *userGroupResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, config userGroupResourceModel
+	var plan, config, state userGroupResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	change := plan.change(ctx, config, &resp.Diagnostics)
+	change := plan.change(ctx, config, state.CustomAttributes, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -397,7 +437,7 @@ func (r *userGroupResource) Update(ctx context.Context, req resource.UpdateReque
 		return
 	}
 	members := r.applyExemptions(ctx, g.ID, plan.MembershipRule, &resp.Diagnostics)
-	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupResourceModel(ctx, *g, members, &resp.Diagnostics))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupResourceModel(ctx, *g, members, plan.CustomAttributes, &resp.Diagnostics))...)
 }
 
 func (r *userGroupResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
@@ -455,8 +495,9 @@ func (r *userGroupResource) applyExemptions(ctx context.Context, groupID string,
 }
 
 // change builds the API change from the plan. Attributes are only sent when configured,
-// so values set elsewhere are kept.
-func (m userGroupResourceModel) change(ctx context.Context, config userGroupResourceModel, diags *diag.Diagnostics) client.UserGroupChange {
+// so values set elsewhere are kept. managed names the custom attributes state already
+// records, the only ones this resource may remove.
+func (m userGroupResourceModel) change(ctx context.Context, config userGroupResourceModel, managed types.Map, diags *diag.Diagnostics) client.UserGroupChange {
 	ch := client.UserGroupChange{
 		Name:        m.Name.ValueString(),
 		Description: m.Description.ValueString(),
@@ -521,18 +562,50 @@ func (m userGroupResourceModel) change(ctx context.Context, config userGroupReso
 		}
 		ch.Attributes["posixGroups"] = groups
 	}
+	if !config.CustomAttributes.IsNull() {
+		var want map[string]jsontypes.Normalized
+		diags.Append(m.CustomAttributes.ElementsAs(ctx, &want, false)...)
+		for name, value := range want {
+			ch.Attributes[name] = json.RawMessage(value.ValueString())
+		}
+		// Attributes this resource set before and the configuration dropped are removed.
+		// The nil must stay untyped: applyTo removes an attribute on a nil value, and a
+		// typed nil would be written as null instead.
+		for name := range managed.Elements() {
+			if _, kept := want[name]; !kept {
+				ch.Attributes[name] = nil
+			}
+		}
+	}
 	return ch
 }
 
+// customAttributes reports the custom attributes state records, managed, with the values
+// JumpCloud has, so a change made elsewhere shows as drift. Attributes the configuration
+// never set stay out of state and are left alone.
+func customAttributes(managed types.Map, got map[string]json.RawMessage, diags *diag.Diagnostics) types.Map {
+	values := map[string]attr.Value{}
+	for name := range managed.Elements() {
+		if raw, ok := got[name]; ok {
+			values[name] = jsontypes.NewNormalizedValue(string(raw))
+		}
+	}
+	m, d := types.MapValue(jsontypes.NormalizedType{}, values)
+	diags.Append(d...)
+	return m
+}
+
 // newUserGroupResourceModel builds state from a group. members lists the group's exempt
-// users that are members: they are included, other exempt users are excluded.
-func newUserGroupResourceModel(ctx context.Context, g client.UserGroup, members []string, diags *diag.Diagnostics) userGroupResourceModel {
+// users that are members: they are included, other exempt users are excluded. managed
+// names the custom attributes to record; the rest of the group's are left out.
+func newUserGroupResourceModel(ctx context.Context, g client.UserGroup, members []string, managed types.Map, diags *diag.Diagnostics) userGroupResourceModel {
 	m := userGroupResourceModel{
 		ID:               types.StringValue(g.ID),
 		Name:             types.StringValue(g.Name),
 		Description:      types.StringValue(g.Description),
 		Email:            types.StringValue(g.Email),
 		SambaEnabled:     types.BoolValue(g.Attributes.SambaEnabled),
+		CustomAttributes: customAttributes(managed, g.Attributes.Custom, diags),
 		MembershipMethod: types.StringValue(g.MembershipMethod),
 	}
 	if g.Dynamic() {
