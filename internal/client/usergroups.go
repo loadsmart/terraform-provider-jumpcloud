@@ -52,13 +52,46 @@ type exemption struct {
 	Type string `json:"type"`
 }
 
-// UserGroupAttributes are the group attributes the provider manages.
+// UserGroupAttributes are the attributes JumpCloud stores on a group. Besides the ones
+// with a meaning to JumpCloud, a group holds any number of custom attributes, which its
+// members inherit. See https://jumpcloud.com/support/group-inherited-user-attributes.
 type UserGroupAttributes struct {
 	Sudo         *Sudo        `json:"sudo"`
 	Radius       *Radius      `json:"radius"`
 	SambaEnabled bool         `json:"sambaEnabled"`
 	LDAPGroups   []LDAPGroup  `json:"ldapGroups"`
 	POSIXGroups  []POSIXGroup `json:"posixGroups"`
+	// Custom holds every other attribute. Values are a string, number, boolean, or
+	// JSON object. It is filled on read; writes go through UserGroupChange.Attributes.
+	Custom map[string]json.RawMessage `json:"-"`
+}
+
+// ManagedAttributes are the attribute names JumpCloud gives a meaning to. Every other
+// name in a group's attributes is a custom attribute.
+var ManagedAttributes = []string{"sudo", "radius", "sambaEnabled", "ldapGroups", "posixGroups"}
+
+// UnmarshalJSON sorts the attributes JumpCloud returns into the named fields and Custom.
+func (a *UserGroupAttributes) UnmarshalJSON(data []byte) error {
+	// The group list returns attributes as null, which Go still unmarshals through here.
+	if string(data) == "null" {
+		return nil
+	}
+	// A distinct type stops json from calling this method again.
+	type managed UserGroupAttributes
+	var out managed
+	if err := json.Unmarshal(data, &out); err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	for _, name := range ManagedAttributes {
+		delete(all, name)
+	}
+	out.Custom = all
+	*a = UserGroupAttributes(out)
+	return nil
 }
 
 type Sudo struct {
