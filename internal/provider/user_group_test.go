@@ -83,6 +83,8 @@ func TestUserGroupDataSources(t *testing.T) {
 		g.Email = "devs@example.com"
 		g.MembershipMethod = "DYNAMIC_AUTOMATED"
 		g.MemberQuery = json.RawMessage(`{"filters":[]}`)
+		g.Attributes["department"] = fakeJSON("Test")
+		g.Attributes["seats"] = json.RawMessage(`42`)
 	})
 	f.addGroup("dup", "")
 	f.addGroup("dup", "")
@@ -103,6 +105,10 @@ data "jumpcloud_user_groups" "all" {}`,
 					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "email", "devs@example.com"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "membership_method", "DYNAMIC_AUTOMATED"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "query", `{"filters":[]}`),
+					// The data source reports every custom attribute and leaves the managed ones out.
+					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "custom_attributes.%", "2"),
+					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "custom_attributes.department", `"Test"`),
+					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "custom_attributes.seats", `42`),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_groups.all", "groups.#", "3"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_groups.all", "groups.0.name", "devs"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_groups.all", "groups.0.email", "devs@example.com"),

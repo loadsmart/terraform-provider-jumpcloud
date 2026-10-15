@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 
@@ -68,6 +70,7 @@ type userGroupModel struct {
 	Email            types.String `tfsdk:"email"`
 	MembershipMethod types.String `tfsdk:"membership_method"`
 	Query            types.String `tfsdk:"query"`
+	CustomAttributes types.Map    `tfsdk:"custom_attributes"`
 }
 
 // userGroupSummaryModel is what the group list returns: JumpCloud leaves out the
@@ -79,11 +82,18 @@ type userGroupSummaryModel struct {
 	Email       types.String `tfsdk:"email"`
 }
 
-func newUserGroupModel(g client.UserGroup) userGroupModel {
+func newUserGroupModel(g client.UserGroup, diags *diag.Diagnostics) userGroupModel {
 	query := ""
 	if g.Dynamic() {
 		query = string(g.MemberQuery)
 	}
+	// Unlike the resource, the data source reports every custom attribute: it only reads.
+	custom := map[string]attr.Value{}
+	for name, raw := range g.Attributes.Custom {
+		custom[name] = jsontypes.NewNormalizedValue(string(raw))
+	}
+	attributes, d := types.MapValue(jsontypes.NormalizedType{}, custom)
+	diags.Append(d...)
 	return userGroupModel{
 		ID:               types.StringValue(g.ID),
 		Name:             types.StringValue(g.Name),
@@ -91,5 +101,6 @@ func newUserGroupModel(g client.UserGroup) userGroupModel {
 		Email:            types.StringValue(g.Email),
 		MembershipMethod: types.StringValue(g.MembershipMethod),
 		Query:            types.StringValue(query),
+		CustomAttributes: attributes,
 	}
 }

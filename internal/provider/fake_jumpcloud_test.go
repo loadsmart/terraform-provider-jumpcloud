@@ -301,11 +301,13 @@ func (f *fakeJumpCloud) listGroups(w http.ResponseWriter, r *http.Request) {
 	}
 	f.mu.Unlock()
 	slices.SortFunc(out, func(a, b fakeGroup) int { return strings.Compare(a.ID, b.ID) })
-	// Like JumpCloud, the list omits membership fields; only GET by ID returns them.
+	// Like JumpCloud, the list omits membership fields and nulls the attributes; only GET
+	// by ID returns them.
 	summaries := make([]map[string]any, 0, len(out))
 	for _, g := range out {
 		summaries = append(summaries, map[string]any{
 			"id": g.ID, "name": g.Name, "description": g.Description, "email": g.Email, "type": "user_group",
+			"attributes": nil,
 		})
 	}
 	writeFake(w, http.StatusOK, summaries)
