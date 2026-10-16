@@ -41,6 +41,7 @@ func (f *fakeJumpCloud) addConsoleOIDCApp() string {
 		"relyingPartyUrl":         "https://example.com",
 		"tokenEndpointAuthMethod": "client_secret_post",
 		"dynamicClaims":           []any{},
+		"staticClaims":            []any{},
 		"accessTokenLifespan":     "1h",
 		"refreshTokenLifespan":    "720h",
 	}}
@@ -175,6 +176,10 @@ func (f *fakeJumpCloud) createSSO(w http.ResponseWriter, r *http.Request) {
 	}
 	body.OIDC["clientId"] = "client-" + id
 	body.OIDC["accessTokenLifespan"] = "1h"
+	// JumpCloud stores an empty list when no static claims are sent.
+	if _, ok := body.OIDC["staticClaims"]; !ok {
+		body.OIDC["staticClaims"] = []any{}
+	}
 	// JumpCloud sets a refresh token lifespan even when refresh_token is not granted.
 	body.OIDC["refreshTokenLifespan"] = "720h"
 	f.mu.Lock()
@@ -267,4 +272,11 @@ func (f *fakeJumpCloud) changeAssoc(w http.ResponseWriter, r *http.Request) {
 		f.assocs[key] = slices.DeleteFunc(f.assocs[key], func(t string) bool { return t == op.ID })
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+// setStaticClaims changes an app's static claims as the admin console would.
+func (f *fakeJumpCloud) setStaticClaims(id string, claims []any) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sso[id].OIDC["staticClaims"] = claims
 }

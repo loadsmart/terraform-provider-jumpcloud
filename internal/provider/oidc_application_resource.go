@@ -13,6 +13,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -40,6 +41,7 @@ type oidcApplicationModel struct {
 	GrantTypes              types.Set    `tfsdk:"grant_types"`
 	TokenEndpointAuthMethod types.String `tfsdk:"token_endpoint_auth_method"`
 	Claims                  types.Map    `tfsdk:"claims"`
+	StaticClaims            types.Map    `tfsdk:"static_claims"`
 	ClientID                types.String `tfsdk:"client_id"`
 	ClientSecret            types.String `tfsdk:"client_secret"`
 }
@@ -110,11 +112,22 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 			"claims": schema.MapAttribute{
 				MarkdownDescription: "Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, " +
 					"even for the `email` and `profile` scopes, so map the ones the application needs, for example " +
-					"`{ email = \"email\", name = \"fullname\", groups = \"groups\" }`. `groups` lists the user groups bound to the application; JumpCloud sends it as a string, not a list, when the user is in exactly one of them.",
+					"`{ email = \"email\", name = \"fullname\", groups = \"groups\" }`. The admin console's Profile scope adds " +
+					"`{ given_name = \"firstname\", family_name = \"lastname\" }`; its Email scope adds `email` here and `email_verified` in `static_claims`. " +
+					"`groups` lists the user groups bound to the application; JumpCloud sends it as a string, not a list, when the user is in exactly one of them.",
 				Optional:    true,
 				Computed:    true,
 				ElementType: types.StringType,
 				Default:     mapdefault.StaticValue(types.MapValueMust(types.StringType, map[string]attr.Value{})),
+			},
+			"static_claims": schema.MapAttribute{
+				MarkdownDescription: "Claims with the same value for every user, mapping each claim name to its value, for example " +
+					"`{ email_verified = \"true\" }`. This is what the Email scope adds in the admin console. JumpCloud sends the values as strings. " +
+					"Kept as is when not set, such as when set in the admin console; `{}` removes them.",
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.StringType,
+				PlanModifiers: []planmodifier.Map{mapplanmodifier.UseStateForUnknown()},
 			},
 			"client_id": schema.StringAttribute{
 				MarkdownDescription: "OAuth client ID.",
@@ -136,9 +149,10 @@ func (r *oidcApplicationResource) Configure(_ context.Context, req resource.Conf
 }
 
 func (r *oidcApplicationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
-	var plan oidcApplicationModel
+	var plan, config oidcApplicationModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
-	settings := plan.settings(ctx, &resp.Diagnostics)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	settings := plan.settings(ctx, config, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -155,6 +169,9 @@ func (r *oidcApplicationResource) Create(ctx context.Context, req resource.Creat
 	plan.ID = types.StringValue(app.ID)
 	plan.ClientID = types.StringValue(app.OIDC.ClientID)
 	plan.ClientSecret = types.StringValue(app.OIDC.ClientSecret)
+	if plan.StaticClaims.IsUnknown() {
+		plan.StaticClaims = claimsMap(ctx, app.OIDC.StaticClaims, &resp.Diagnostics)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -175,17 +192,12 @@ func (r *oidcApplicationResource) Read(ctx context.Context, req resource.ReadReq
 		return
 	}
 
-	claims := make(map[string]string, len(app.OIDC.DynamicClaims))
-	for _, c := range app.OIDC.DynamicClaims {
-		claims[c.Name] = c.Value
-	}
-	var diags diag.Diagnostics
 	state.DisplayLabel = types.StringValue(app.DisplayLabel)
 	state.ShowInPortal = types.BoolValue(!app.Hidden)
 	state.RedirectURIs = stringSet(ctx, app.OIDC.RedirectURIs, &resp.Diagnostics)
 	state.GrantTypes = stringSet(ctx, app.OIDC.GrantTypes, &resp.Diagnostics)
-	state.Claims, diags = types.MapValueFrom(ctx, types.StringType, claims)
-	resp.Diagnostics.Append(diags...)
+	state.Claims = claimsMap(ctx, &app.OIDC.DynamicClaims, &resp.Diagnostics)
+	state.StaticClaims = claimsMap(ctx, app.OIDC.StaticClaims, &resp.Diagnostics)
 	state.LoginURL = types.StringValue(app.OIDC.RelyingPartyURL)
 	state.TokenEndpointAuthMethod = types.StringValue(app.OIDC.TokenEndpointAuthMethod)
 	state.ClientID = types.StringValue(app.OIDC.ClientID)
@@ -193,10 +205,11 @@ func (r *oidcApplicationResource) Read(ctx context.Context, req resource.ReadReq
 }
 
 func (r *oidcApplicationResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
-	var plan, state oidcApplicationModel
+	var plan, state, config oidcApplicationModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
-	settings := plan.settings(ctx, &resp.Diagnostics)
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	settings := plan.settings(ctx, config, &resp.Diagnostics)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -238,13 +251,15 @@ func (r *oidcApplicationResource) ImportState(ctx context.Context, req resource.
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
 }
 
-func (m oidcApplicationModel) settings(ctx context.Context, diags *diag.Diagnostics) client.OIDCSettings {
-	claims := map[string]string{}
-	diags.Append(m.Claims.ElementsAs(ctx, &claims, false)...)
-	// An empty list (not null) clears claims on update.
-	dynamic := []client.OIDCClaim{}
-	for _, name := range slices.Sorted(maps.Keys(claims)) {
-		dynamic = append(dynamic, client.OIDCClaim{Name: name, Value: claims[name]})
+// settings returns the OIDC settings to write. Static claims are sent only when
+// configured, so ones set in the admin console are kept.
+func (m oidcApplicationModel) settings(ctx context.Context, config oidcApplicationModel, diags *diag.Diagnostics) client.OIDCSettings {
+	// An empty list (not null) clears dynamic claims on update.
+	dynamic := claimList(ctx, m.Claims, diags)
+	var static *[]client.OIDCClaim
+	if !config.StaticClaims.IsNull() {
+		list := claimList(ctx, m.StaticClaims, diags)
+		static = &list
 	}
 	return client.OIDCSettings{
 		RedirectURIs:            setToStrings(ctx, m.RedirectURIs, diags),
@@ -252,5 +267,30 @@ func (m oidcApplicationModel) settings(ctx context.Context, diags *diag.Diagnost
 		TokenEndpointAuthMethod: m.TokenEndpointAuthMethod.ValueString(),
 		RelyingPartyURL:         m.LoginURL.ValueString(),
 		DynamicClaims:           dynamic,
+		StaticClaims:            static,
 	}
+}
+
+// claimList turns a claim map into JumpCloud's list, sorted so requests are deterministic.
+func claimList(ctx context.Context, m types.Map, diags *diag.Diagnostics) []client.OIDCClaim {
+	claims := map[string]string{}
+	diags.Append(m.ElementsAs(ctx, &claims, false)...)
+	list := []client.OIDCClaim{}
+	for _, name := range slices.Sorted(maps.Keys(claims)) {
+		list = append(list, client.OIDCClaim{Name: name, Value: claims[name]})
+	}
+	return list
+}
+
+// claimsMap turns JumpCloud's claim list into a map; nil becomes an empty map.
+func claimsMap(ctx context.Context, list *[]client.OIDCClaim, diags *diag.Diagnostics) types.Map {
+	claims := map[string]string{}
+	if list != nil {
+		for _, c := range *list {
+			claims[c.Name] = c.Value
+		}
+	}
+	m, d := types.MapValueFrom(ctx, types.StringType, claims)
+	diags.Append(d...)
+	return m
 }

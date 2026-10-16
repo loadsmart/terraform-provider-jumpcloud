@@ -108,9 +108,13 @@ type OIDCSettings struct {
 	TokenEndpointAuthMethod string      `json:"tokenEndpointAuthMethod"`
 	RelyingPartyURL         string      `json:"relyingPartyUrl"`
 	DynamicClaims           []OIDCClaim `json:"dynamicClaims"`
+	// StaticClaims are claims with the same value for every user, such as email_verified.
+	// nil leaves them as they are on update; a pointer to an empty slice clears them.
+	StaticClaims *[]OIDCClaim `json:"staticClaims,omitempty"`
 }
 
-// OIDCClaim maps a token claim name to a JumpCloud user attribute.
+// OIDCClaim maps a token claim name to a JumpCloud user attribute, or to a constant
+// value in StaticClaims.
 type OIDCClaim struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
