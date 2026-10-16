@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.8.0...v0.9.0) (2026-10-16)
+
+
+### Features
+
+* manage custom attributes on user groups ([#25](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/25)) ([12533a7](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/12533a7caea9247d19806b4a28290cab1544c2d7))
+
 ## [0.8.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.7.0...v0.8.0) (2026-10-16)
 
 
