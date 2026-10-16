@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.7.0...v0.8.0) (2026-10-16)
+
+
+### Features
+
+* add subject field to oidc applications ([#21](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/21)) ([531eeec](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/531eeeca5d0c980693d0c5a7bf869e6dbf6f941b))
+
 ## [0.7.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.6.0...v0.7.0) (2026-10-16)
 
 
