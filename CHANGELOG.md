@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.5.0...v0.6.0) (2026-10-16)
+
+
+### Features
+
+* add static claims to oidc applications ([#19](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/19)) ([4e42d8c](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/4e42d8c9248e36895f464515609fa81ec5037183))
+
 ## [0.5.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.4.0...v0.5.0) (2026-10-16)
 
 
