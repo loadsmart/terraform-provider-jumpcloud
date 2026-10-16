@@ -75,6 +75,7 @@ resource "jumpcloud_oidc_application" "test" {
 					resource.TestCheckResourceAttr(addr, "token_endpoint_auth_method", "client_secret_basic"),
 					resource.TestCheckResourceAttr(addr, "grant_types.#", "2"),
 					resource.TestCheckResourceAttr(addr, "claims.%", "0"),
+					resource.TestCheckResourceAttr(addr, "static_claims.%", "0"),
 					jumpcloud(func(a client.Application, sso fakeSSO) error {
 						if a.Name != "oidc" || a.DisplayLabel != "grafana-qa" || !sso.Hidden || sso.OIDC["consent"] != "trusted" {
 							return fmt.Errorf("JumpCloud has %+v %+v", a, sso)
@@ -378,4 +379,77 @@ func expect(got, want string) error {
 		return fmt.Errorf("got %q, want %q", got, want)
 	}
 	return nil
+}
+
+func TestOIDCApplicationStaticClaims(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_oidc_application.test"
+	config := func(claims, static string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_oidc_application" "test" {
+  display_label = "app"
+  redirect_uris = ["https://app.example.com/callback"]
+  login_url     = "https://app.example.com"
+  claims        = { %s }
+  %s
+}`, claims, static)
+	}
+	var id string
+	stored := func(want []any) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			_, sso, _ := f.app(id)
+			if !reflect.DeepEqual(sso.OIDC["staticClaims"], want) {
+				return fmt.Errorf("staticClaims = %#v, want %#v", sso.OIDC["staticClaims"], want)
+			}
+			return nil
+		}
+	}
+	verified := []any{map[string]any{"name": "email_verified", "value": "true"}}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config(`email = "email"`, `static_claims = { email_verified = "true" }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr(addr, "static_claims.%", "1"),
+					resource.TestCheckResourceAttr(addr, "static_claims.email_verified", "true"),
+					resource.TestCheckResourceAttr(addr, "claims.email", "email"),
+					stored(verified),
+				),
+			},
+			{
+				// Not configured: kept as is, also when an update writes the other settings.
+				Config: config(`email = "email", name = "fullname"`, ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "static_claims.email_verified", "true"),
+					resource.TestCheckResourceAttr(addr, "claims.%", "2"),
+					stored(verified),
+				),
+			},
+			{
+				// A claim added in the admin console shows up in state and is kept.
+				PreConfig: func() {
+					f.setStaticClaims(id, []any{
+						map[string]any{"name": "email_verified", "value": "true"},
+						map[string]any{"name": "tenant", "value": "loadsmart"},
+					})
+				},
+				Config: config(`email = "email"`, ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "static_claims.%", "2"),
+					resource.TestCheckResourceAttr(addr, "static_claims.tenant", "loadsmart"),
+				),
+			},
+			{
+				Config: config(`email = "email"`, "static_claims = {}"),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "static_claims.%", "0"),
+					stored([]any{}),
+				),
+			},
+			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
+		},
+	})
 }

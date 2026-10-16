@@ -5,10 +5,18 @@ resource "jumpcloud_oidc_application" "grafana" {
   login_url      = "https://grafana.example.com"
 
   # JumpCloud only puts mapped claims in the ID token and userinfo response.
+  # given_name and family_name are what the console's Profile scope adds.
   claims = {
-    email  = "email"
-    name   = "fullname"
-    groups = "groups"
+    email       = "email"
+    name        = "fullname"
+    given_name  = "firstname"
+    family_name = "lastname"
+    groups      = "groups"
+  }
+
+  # Same value for every user; the console's Email scope adds email_verified.
+  static_claims = {
+    email_verified = "true"
   }
 }
 
