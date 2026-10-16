@@ -44,6 +44,7 @@ func (f *fakeJumpCloud) addConsoleOIDCApp() string {
 		"staticClaims":            []any{},
 		"accessTokenStrategy":     "opaque",
 		"audience":                []any{},
+		"subjectField":            "userId",
 		"accessTokenLifespan":     "1h",
 		"refreshTokenLifespan":    "720h",
 	}}
@@ -188,6 +189,9 @@ func (f *fakeJumpCloud) createSSO(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := body.OIDC["audience"]; !ok {
 		body.OIDC["audience"] = []any{}
+	}
+	if _, ok := body.OIDC["subjectField"]; !ok {
+		body.OIDC["subjectField"] = "userId"
 	}
 	// JumpCloud sets a refresh token lifespan even when refresh_token is not granted.
 	body.OIDC["refreshTokenLifespan"] = "720h"

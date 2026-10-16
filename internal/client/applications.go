@@ -114,6 +114,7 @@ type OIDCSettings struct {
 	// Empty or nil leaves the current value on update.
 	AccessTokenStrategy string    `json:"accessTokenStrategy,omitempty"`
 	Audience            *[]string `json:"audience,omitempty"`
+	SubjectField        string    `json:"subjectField,omitempty"`
 }
 
 // OIDCClaim maps a token claim name to a JumpCloud user attribute, or to a constant

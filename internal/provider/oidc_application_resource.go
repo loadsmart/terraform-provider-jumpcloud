@@ -45,6 +45,7 @@ type oidcApplicationModel struct {
 	StaticClaims            types.Map    `tfsdk:"static_claims"`
 	AccessTokenFormat       types.String `tfsdk:"access_token_format"`
 	Audiences               types.Set    `tfsdk:"audiences"`
+	SubjectField            types.String `tfsdk:"subject_field"`
 	ClientID                types.String `tfsdk:"client_id"`
 	ClientSecret            types.String `tfsdk:"client_secret"`
 }
@@ -147,6 +148,14 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				ElementType:   types.StringType,
 				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()},
 			},
+			"subject_field": schema.StringAttribute{
+				MarkdownDescription: "User attribute JumpCloud puts in the `sub` claim: `userId` (JumpCloud's default, the user's JumpCloud ID), `email`, `username`, or a custom attribute name. " +
+					"JumpCloud accepts any value without checking it, and sign-in fails with `OIDC_SUB_VALUE_EXCEPTION` for every user whose profile lacks the attribute, so a typo blocks everyone. " +
+					"Applications that key users on `sub` see a new user when it changes. Kept as is when not set, such as when set in the admin console.",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
 			"client_id": schema.StringAttribute{
 				MarkdownDescription: "OAuth client ID.",
 				Computed:            true,
@@ -196,6 +205,9 @@ func (r *oidcApplicationResource) Create(ctx context.Context, req resource.Creat
 	if plan.Audiences.IsUnknown() {
 		plan.Audiences = stringSet(ctx, audienceList(app.OIDC.Audience), &resp.Diagnostics)
 	}
+	if plan.SubjectField.IsUnknown() {
+		plan.SubjectField = types.StringValue(app.OIDC.SubjectField)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -224,6 +236,7 @@ func (r *oidcApplicationResource) Read(ctx context.Context, req resource.ReadReq
 	state.StaticClaims = claimsMap(ctx, app.OIDC.StaticClaims, &resp.Diagnostics)
 	state.AccessTokenFormat = types.StringValue(app.OIDC.AccessTokenStrategy)
 	state.Audiences = stringSet(ctx, audienceList(app.OIDC.Audience), &resp.Diagnostics)
+	state.SubjectField = types.StringValue(app.OIDC.SubjectField)
 	state.LoginURL = types.StringValue(app.OIDC.RelyingPartyURL)
 	state.TokenEndpointAuthMethod = types.StringValue(app.OIDC.TokenEndpointAuthMethod)
 	state.ClientID = types.StringValue(app.OIDC.ClientID)
@@ -299,6 +312,7 @@ func (m oidcApplicationModel) settings(ctx context.Context, config oidcApplicati
 	return client.OIDCSettings{
 		AccessTokenStrategy:     m.AccessTokenFormat.ValueString(),
 		Audience:                audience,
+		SubjectField:            m.SubjectField.ValueString(),
 		RedirectURIs:            setToStrings(ctx, m.RedirectURIs, diags),
 		GrantTypes:              setToStrings(ctx, m.GrantTypes, diags),
 		TokenEndpointAuthMethod: m.TokenEndpointAuthMethod.ValueString(),

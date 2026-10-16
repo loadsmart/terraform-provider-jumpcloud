@@ -78,6 +78,7 @@ resource "jumpcloud_oidc_application" "test" {
 					resource.TestCheckResourceAttr(addr, "static_claims.%", "0"),
 					resource.TestCheckResourceAttr(addr, "access_token_format", "opaque"),
 					resource.TestCheckResourceAttr(addr, "audiences.#", "0"),
+					resource.TestCheckResourceAttr(addr, "subject_field", "userId"),
 					jumpcloud(func(a client.Application, sso fakeSSO) error {
 						if a.Name != "oidc" || a.DisplayLabel != "grafana-qa" || !sso.Hidden || sso.OIDC["consent"] != "trusted" {
 							return fmt.Errorf("JumpCloud has %+v %+v", a, sso)
@@ -517,6 +518,65 @@ resource "jumpcloud_oidc_application" "test" {
 					resource.TestCheckResourceAttr(addr, "audiences.#", "0"),
 					stored("jwt", []any{}),
 				),
+			},
+			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
+		},
+	})
+}
+
+func TestOIDCApplicationSubjectField(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_oidc_application.test"
+	config := func(login, extra string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_oidc_application" "test" {
+  display_label = "app"
+  redirect_uris = ["https://app.example.com/callback"]
+  login_url     = %q
+  %s
+}`, login, extra)
+	}
+	var id string
+	stored := func(want string) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			if _, sso, _ := f.app(id); sso.OIDC["subjectField"] != want {
+				return fmt.Errorf("JumpCloud has subjectField %v, want %v", sso.OIDC["subjectField"], want)
+			}
+			return nil
+		}
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config("https://app.example.com", `subject_field = "email"`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr(addr, "subject_field", "email"),
+					stored("email"),
+				),
+			},
+			{
+				// Not configured: kept as is, also when an update writes the other settings.
+				Config: config("https://app.example.com/login", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "subject_field", "email"),
+					stored("email"),
+				),
+			},
+			{
+				// Changed in the admin console: shows up in state and is kept.
+				PreConfig: func() { f.setOIDC(id, "subjectField", "userId") },
+				Config:    config("https://app.example.com/login", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "subject_field", "userId"),
+					stored("userId"),
+				),
+			},
+			{
+				Config: config("https://app.example.com/login", `subject_field = "email"`),
+				Check:  stored("email"),
 			},
 			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
 		},
