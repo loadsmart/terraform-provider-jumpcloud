@@ -65,6 +65,8 @@ output "grafana_client_secret" {
 
 ### Optional
 
+- `access_token_format` (String) Access token format: `opaque` (JumpCloud's default) or `jwt`, which applications can validate locally against the JWKS. Kept as is when not set, such as when set in the admin console.
+- `audiences` (Set of String) Additional audiences an application can request for its access tokens, up to 5. Kept as is when not set, such as when set in the admin console; `[]` removes them.
 - `claims` (Map of String) Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, even for the `email` and `profile` scopes, so map the ones the application needs, for example `{ email = "email", name = "fullname", groups = "groups" }`. The admin console's Profile scope adds `{ given_name = "firstname", family_name = "lastname" }`; its Email scope adds `email` here and `email_verified` in `static_claims`. `groups` lists the user groups bound to the application; JumpCloud sends it as a string, not a list, when the user is in exactly one of them.
 - `grant_types` (Set of String) Allowed grant types: `authorization_code` and `refresh_token`. JumpCloud supports no others.
 - `show_in_portal` (Boolean) Whether the application appears in users' JumpCloud portal. Hidden applications still accept sign-ins.

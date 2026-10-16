@@ -76,6 +76,8 @@ resource "jumpcloud_oidc_application" "test" {
 					resource.TestCheckResourceAttr(addr, "grant_types.#", "2"),
 					resource.TestCheckResourceAttr(addr, "claims.%", "0"),
 					resource.TestCheckResourceAttr(addr, "static_claims.%", "0"),
+					resource.TestCheckResourceAttr(addr, "access_token_format", "opaque"),
+					resource.TestCheckResourceAttr(addr, "audiences.#", "0"),
 					jumpcloud(func(a client.Application, sso fakeSSO) error {
 						if a.Name != "oidc" || a.DisplayLabel != "grafana-qa" || !sso.Hidden || sso.OIDC["consent"] != "trusted" {
 							return fmt.Errorf("JumpCloud has %+v %+v", a, sso)
@@ -431,7 +433,7 @@ resource "jumpcloud_oidc_application" "test" {
 			{
 				// A claim added in the admin console shows up in state and is kept.
 				PreConfig: func() {
-					f.setStaticClaims(id, []any{
+					f.setOIDC(id, "staticClaims", []any{
 						map[string]any{"name": "email_verified", "value": "true"},
 						map[string]any{"name": "tenant", "value": "loadsmart"},
 					})
@@ -447,6 +449,73 @@ resource "jumpcloud_oidc_application" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr(addr, "static_claims.%", "0"),
 					stored([]any{}),
+				),
+			},
+			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
+		},
+	})
+}
+
+func TestOIDCApplicationAccessTokenFormat(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_oidc_application.test"
+	config := func(login, extra string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_oidc_application" "test" {
+  display_label = "app"
+  redirect_uris = ["https://app.example.com/callback"]
+  login_url     = %q
+  %s
+}`, login, extra)
+	}
+	var id string
+	stored := func(format string, audience []any) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			_, sso, _ := f.app(id)
+			if sso.OIDC["accessTokenStrategy"] != format || !reflect.DeepEqual(sso.OIDC["audience"], audience) {
+				return fmt.Errorf("JumpCloud has %v %#v, want %v %#v", sso.OIDC["accessTokenStrategy"], sso.OIDC["audience"], format, audience)
+			}
+			return nil
+		}
+	}
+	api := []any{"https://api.example.com"}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config("https://app.example.com", `
+  access_token_format = "jwt"
+  audiences           = ["https://api.example.com"]`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr(addr, "access_token_format", "jwt"),
+					resource.TestCheckResourceAttr(addr, "audiences.#", "1"),
+					stored("jwt", api),
+				),
+			},
+			{
+				// Not configured: kept as is, also when an update writes the other settings.
+				Config: config("https://app.example.com/login", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "access_token_format", "jwt"),
+					resource.TestCheckResourceAttr(addr, "audiences.0", "https://api.example.com"),
+					stored("jwt", api),
+				),
+			},
+			{
+				// Changed in the admin console: shows up in state and is kept.
+				PreConfig: func() { f.setOIDC(id, "accessTokenStrategy", "opaque") },
+				Config:    config("https://app.example.com/login", ""),
+				Check:     resource.TestCheckResourceAttr(addr, "access_token_format", "opaque"),
+			},
+			{
+				Config: config("https://app.example.com/login", `
+  access_token_format = "jwt"
+  audiences           = []`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "audiences.#", "0"),
+					stored("jwt", []any{}),
 				),
 			},
 			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},

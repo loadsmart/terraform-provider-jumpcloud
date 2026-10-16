@@ -42,6 +42,8 @@ func (f *fakeJumpCloud) addConsoleOIDCApp() string {
 		"tokenEndpointAuthMethod": "client_secret_post",
 		"dynamicClaims":           []any{},
 		"staticClaims":            []any{},
+		"accessTokenStrategy":     "opaque",
+		"audience":                []any{},
 		"accessTokenLifespan":     "1h",
 		"refreshTokenLifespan":    "720h",
 	}}
@@ -180,6 +182,13 @@ func (f *fakeJumpCloud) createSSO(w http.ResponseWriter, r *http.Request) {
 	if _, ok := body.OIDC["staticClaims"]; !ok {
 		body.OIDC["staticClaims"] = []any{}
 	}
+	// JumpCloud defaults these when they are not sent.
+	if _, ok := body.OIDC["accessTokenStrategy"]; !ok {
+		body.OIDC["accessTokenStrategy"] = "opaque"
+	}
+	if _, ok := body.OIDC["audience"]; !ok {
+		body.OIDC["audience"] = []any{}
+	}
 	// JumpCloud sets a refresh token lifespan even when refresh_token is not granted.
 	body.OIDC["refreshTokenLifespan"] = "720h"
 	f.mu.Lock()
@@ -274,9 +283,9 @@ func (f *fakeJumpCloud) changeAssoc(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// setStaticClaims changes an app's static claims as the admin console would.
-func (f *fakeJumpCloud) setStaticClaims(id string, claims []any) {
+// setOIDC changes one OIDC setting as the admin console would.
+func (f *fakeJumpCloud) setOIDC(id, key string, value any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.sso[id].OIDC["staticClaims"] = claims
+	f.sso[id].OIDC[key] = value
 }

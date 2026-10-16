@@ -111,6 +111,9 @@ type OIDCSettings struct {
 	// StaticClaims are claims with the same value for every user, such as email_verified.
 	// nil leaves them as they are on update; a pointer to an empty slice clears them.
 	StaticClaims *[]OIDCClaim `json:"staticClaims,omitempty"`
+	// Empty or nil leaves the current value on update.
+	AccessTokenStrategy string    `json:"accessTokenStrategy,omitempty"`
+	Audience            *[]string `json:"audience,omitempty"`
 }
 
 // OIDCClaim maps a token claim name to a JumpCloud user attribute, or to a constant

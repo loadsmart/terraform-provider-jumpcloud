@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setdefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/setplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -42,6 +43,8 @@ type oidcApplicationModel struct {
 	TokenEndpointAuthMethod types.String `tfsdk:"token_endpoint_auth_method"`
 	Claims                  types.Map    `tfsdk:"claims"`
 	StaticClaims            types.Map    `tfsdk:"static_claims"`
+	AccessTokenFormat       types.String `tfsdk:"access_token_format"`
+	Audiences               types.Set    `tfsdk:"audiences"`
 	ClientID                types.String `tfsdk:"client_id"`
 	ClientSecret            types.String `tfsdk:"client_secret"`
 }
@@ -129,6 +132,21 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				ElementType:   types.StringType,
 				PlanModifiers: []planmodifier.Map{mapplanmodifier.UseStateForUnknown()},
 			},
+			"access_token_format": schema.StringAttribute{
+				MarkdownDescription: "Access token format: `opaque` (JumpCloud's default) or `jwt`, which applications can validate locally against the JWKS. " +
+					"Kept as is when not set, such as when set in the admin console.",
+				Optional:      true,
+				Computed:      true,
+				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"audiences": schema.SetAttribute{
+				MarkdownDescription: "Additional audiences an application can request for its access tokens, up to 5. " +
+					"Kept as is when not set, such as when set in the admin console; `[]` removes them.",
+				Optional:      true,
+				Computed:      true,
+				ElementType:   types.StringType,
+				PlanModifiers: []planmodifier.Set{setplanmodifier.UseStateForUnknown()},
+			},
 			"client_id": schema.StringAttribute{
 				MarkdownDescription: "OAuth client ID.",
 				Computed:            true,
@@ -172,6 +190,12 @@ func (r *oidcApplicationResource) Create(ctx context.Context, req resource.Creat
 	if plan.StaticClaims.IsUnknown() {
 		plan.StaticClaims = claimsMap(ctx, app.OIDC.StaticClaims, &resp.Diagnostics)
 	}
+	if plan.AccessTokenFormat.IsUnknown() {
+		plan.AccessTokenFormat = types.StringValue(app.OIDC.AccessTokenStrategy)
+	}
+	if plan.Audiences.IsUnknown() {
+		plan.Audiences = stringSet(ctx, audienceList(app.OIDC.Audience), &resp.Diagnostics)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -198,6 +222,8 @@ func (r *oidcApplicationResource) Read(ctx context.Context, req resource.ReadReq
 	state.GrantTypes = stringSet(ctx, app.OIDC.GrantTypes, &resp.Diagnostics)
 	state.Claims = claimsMap(ctx, &app.OIDC.DynamicClaims, &resp.Diagnostics)
 	state.StaticClaims = claimsMap(ctx, app.OIDC.StaticClaims, &resp.Diagnostics)
+	state.AccessTokenFormat = types.StringValue(app.OIDC.AccessTokenStrategy)
+	state.Audiences = stringSet(ctx, audienceList(app.OIDC.Audience), &resp.Diagnostics)
 	state.LoginURL = types.StringValue(app.OIDC.RelyingPartyURL)
 	state.TokenEndpointAuthMethod = types.StringValue(app.OIDC.TokenEndpointAuthMethod)
 	state.ClientID = types.StringValue(app.OIDC.ClientID)
@@ -261,7 +287,18 @@ func (m oidcApplicationModel) settings(ctx context.Context, config oidcApplicati
 		list := claimList(ctx, m.StaticClaims, diags)
 		static = &list
 	}
+	// Unknown means not configured on create: send nothing and keep JumpCloud's default.
+	var audience *[]string
+	if !m.Audiences.IsUnknown() {
+		list := setToStrings(ctx, m.Audiences, diags)
+		if list == nil {
+			list = []string{}
+		}
+		audience = &list
+	}
 	return client.OIDCSettings{
+		AccessTokenStrategy:     m.AccessTokenFormat.ValueString(),
+		Audience:                audience,
 		RedirectURIs:            setToStrings(ctx, m.RedirectURIs, diags),
 		GrantTypes:              setToStrings(ctx, m.GrantTypes, diags),
 		TokenEndpointAuthMethod: m.TokenEndpointAuthMethod.ValueString(),
@@ -293,4 +330,11 @@ func claimsMap(ctx context.Context, list *[]client.OIDCClaim, diags *diag.Diagno
 	m, d := types.MapValueFrom(ctx, types.StringType, claims)
 	diags.Append(d...)
 	return m
+}
+
+func audienceList(a *[]string) []string {
+	if a == nil {
+		return nil
+	}
+	return *a
 }
