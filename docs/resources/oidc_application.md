@@ -71,6 +71,7 @@ output "grafana_client_secret" {
 - `grant_types` (Set of String) Allowed grant types: `authorization_code` and `refresh_token`. JumpCloud supports no others.
 - `show_in_portal` (Boolean) Whether the application appears in users' JumpCloud portal. Hidden applications still accept sign-ins.
 - `static_claims` (Map of String) Claims with the same value for every user, mapping each claim name to its value, for example `{ email_verified = "true" }`. This is what the Email scope adds in the admin console. JumpCloud sends the values as strings. Kept as is when not set, such as when set in the admin console; `{}` removes them.
+- `subject_field` (String) User attribute JumpCloud puts in the `sub` claim: `userId` (JumpCloud's default, the user's JumpCloud ID), `email`, `username`, or a custom attribute name. JumpCloud accepts any value without checking it, and sign-in fails with `OIDC_SUB_VALUE_EXCEPTION` for every user whose profile lacks the attribute, so a typo blocks everyone. Applications that key users on `sub` see a new user when it changes. Kept as is when not set, such as when set in the admin console.
 - `token_endpoint_auth_method` (String) How the client authenticates at the token endpoint: `client_secret_basic`, `client_secret_post`, or `none` for a public client using PKCE. Changing to or from `none` replaces the application.
 
 ### Read-Only
