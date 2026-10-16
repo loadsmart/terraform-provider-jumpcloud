@@ -32,6 +32,7 @@ type fakeJumpCloud struct {
 	failAdd string // user ID whose member adds fail with 500
 	apps    map[string]client.Application
 	sso     map[string]fakeSSO
+	saml    map[string]fakeSAMLApp
 	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
 	renames int                 // v1 PUT /api/applications/{id} calls
 }
@@ -62,6 +63,7 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	f := &fakeJumpCloud{
 		groups: map[string]fakeGroup{}, members: map[string][]string{},
 		apps: map[string]client.Application{}, sso: map[string]fakeSSO{}, assocs: map[string][]string{},
+		saml: map[string]fakeSAMLApp{},
 	}
 
 	mux := http.NewServeMux()
@@ -75,6 +77,7 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	mux.HandleFunc("GET /api/v2/users/{id}/memberof", f.memberOf)
 	mux.HandleFunc("GET /api/systemusers", f.listUsers)
 	mux.HandleFunc("GET /api/systemusers/{id}", f.getUser)
+	mux.HandleFunc("GET /api/application-templates", f.listTemplates)
 	mux.HandleFunc("POST /api/applications", f.createApp)
 	mux.HandleFunc("GET /api/applications", f.listApps)
 	mux.HandleFunc("GET /api/applications/{id}", f.getApp)

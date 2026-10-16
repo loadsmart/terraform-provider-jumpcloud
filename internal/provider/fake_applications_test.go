@@ -69,6 +69,14 @@ func (f *fakeJumpCloud) associated(appID, targetType, targetID string) bool {
 func (f *fakeJumpCloud) createApp(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&body)
+	if body["name"] != "oidc" {
+		f.mu.Lock()
+		f.nextID++
+		id := fmt.Sprintf("a%d", f.nextID)
+		f.mu.Unlock()
+		f.writeSAMLApp(w, id, body)
+		return
+	}
 	if _, ok := body["ssoUrl"]; ok && body["name"] == "oidc" {
 		writeFake(w, http.StatusBadRequest, map[string]any{"status": 400, "error": "ssoUrl is not allowed for OIDC apps"})
 		return
@@ -93,6 +101,13 @@ func (f *fakeJumpCloud) listApps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeJumpCloud) getApp(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	app, isSAML := f.saml[r.PathValue("id")]
+	f.mu.Unlock()
+	if isSAML {
+		writeFake(w, http.StatusOK, app.doc)
+		return
+	}
 	a, _, ok := f.app(r.PathValue("id"))
 	if !ok {
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
@@ -102,6 +117,15 @@ func (f *fakeJumpCloud) getApp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (f *fakeJumpCloud) renameApp(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	_, isSAML := f.saml[r.PathValue("id")]
+	f.mu.Unlock()
+	if isSAML {
+		var doc map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&doc)
+		f.writeSAMLApp(w, r.PathValue("id"), doc)
+		return
+	}
 	var body struct {
 		client.Application
 		Active bool `json:"active"`
@@ -132,6 +156,7 @@ func (f *fakeJumpCloud) deleteApp(w http.ResponseWriter, r *http.Request) {
 	_, ok := f.apps[id]
 	delete(f.apps, id)
 	delete(f.sso, id)
+	delete(f.saml, id)
 	f.mu.Unlock()
 	if !ok {
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
