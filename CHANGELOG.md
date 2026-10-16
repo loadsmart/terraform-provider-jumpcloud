@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.6.0...v0.7.0) (2026-10-16)
+
+
+### Features
+
+* add access token format and audiences to oidc applications ([#20](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/20)) ([608fc2b](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/608fc2b027b8a513d550c9cd7b305fd847356afa))
+
 ## [0.6.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.5.0...v0.6.0) (2026-10-16)
 
 
