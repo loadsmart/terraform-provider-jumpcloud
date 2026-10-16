@@ -24,17 +24,19 @@ import (
 type fakeJumpCloud struct {
 	url string
 
-	mu      sync.Mutex
-	nextID  int
-	groups  map[string]fakeGroup
-	members map[string][]string // group ID -> user IDs
-	users   []client.User
-	failAdd string // user ID whose member adds fail with 500
-	apps    map[string]client.Application
-	sso     map[string]fakeSSO
-	saml    map[string]fakeSAMLApp
-	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
-	renames int                 // v1 PUT /api/applications/{id} calls
+	mu       sync.Mutex
+	nextID   int
+	groups   map[string]fakeGroup
+	members  map[string][]string // group ID -> user IDs
+	users    []client.User
+	failAdd  string // user ID whose member adds fail with 500
+	apps     map[string]client.Application
+	sso      map[string]fakeSSO
+	saml     map[string]fakeSAMLApp
+	assocs   map[string][]string // "<app ID>/<type>" -> target IDs
+	renames  int                 // v1 PUT /api/applications/{id} calls
+	ipLists  map[string]client.IPList
+	policies map[string]map[string]any
 }
 
 // fakeGroup is a user group as JumpCloud returns it.
@@ -63,7 +65,7 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	f := &fakeJumpCloud{
 		groups: map[string]fakeGroup{}, members: map[string][]string{},
 		apps: map[string]client.Application{}, sso: map[string]fakeSSO{}, assocs: map[string][]string{},
-		saml: map[string]fakeSAMLApp{},
+		saml: map[string]fakeSAMLApp{}, ipLists: map[string]client.IPList{}, policies: map[string]map[string]any{},
 	}
 
 	mux := http.NewServeMux()
@@ -77,6 +79,17 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	mux.HandleFunc("GET /api/v2/users/{id}/memberof", f.memberOf)
 	mux.HandleFunc("GET /api/systemusers", f.listUsers)
 	mux.HandleFunc("GET /api/systemusers/{id}", f.getUser)
+	mux.HandleFunc("POST /api/systemusers", f.createUser)
+	mux.HandleFunc("PUT /api/systemusers/{id}", f.updateUser)
+	mux.HandleFunc("DELETE /api/systemusers/{id}", f.removeUser)
+	mux.HandleFunc("POST /api/v2/iplists", f.createIPList)
+	mux.HandleFunc("GET /api/v2/iplists/{id}", f.getIPList)
+	mux.HandleFunc("PUT /api/v2/iplists/{id}", f.replaceIPList)
+	mux.HandleFunc("DELETE /api/v2/iplists/{id}", f.deleteIPList)
+	mux.HandleFunc("POST /api/v2/authn/policies", f.createPolicy)
+	mux.HandleFunc("GET /api/v2/authn/policies/{id}", f.getPolicy)
+	mux.HandleFunc("PATCH /api/v2/authn/policies/{id}", f.patchPolicy)
+	mux.HandleFunc("DELETE /api/v2/authn/policies/{id}", f.deletePolicy)
 	mux.HandleFunc("GET /api/application-templates", f.listTemplates)
 	mux.HandleFunc("POST /api/applications", f.createApp)
 	mux.HandleFunc("GET /api/applications", f.listApps)

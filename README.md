@@ -1,10 +1,10 @@
 # terraform-provider-jumpcloud
 
-Terraform provider for managing JumpCloud user groups, group memberships, OIDC and SAML applications, and application access.
+Terraform provider for managing JumpCloud users, user groups, group memberships, OIDC and SAML applications, application access, and authentication policies.
 
 This provider is in early development. It currently supports:
 
-- Resources: `jumpcloud_user_group`, `jumpcloud_user_group_members`, `jumpcloud_user_group_memberships`, `jumpcloud_oidc_application`, `jumpcloud_saml_application`, `jumpcloud_application_association`
+- Resources: `jumpcloud_user_group`, `jumpcloud_user_group_members`, `jumpcloud_user_group_memberships`, `jumpcloud_oidc_application`, `jumpcloud_saml_application`, `jumpcloud_application_association`, `jumpcloud_user`, `jumpcloud_ip_list`, `jumpcloud_authentication_policy`
 - Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_users`, `jumpcloud_application`
 
 See [`docs/`](docs/) for arguments and examples.

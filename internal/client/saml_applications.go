@@ -262,3 +262,39 @@ func (c *Client) UpdateSAMLApplication(ctx context.Context, id, label, ssoURL st
 	}
 	return c.GetSAMLApplication(ctx, id)
 }
+
+// ApplicationDetails describes any SSO application: SAML, OIDC, or bookmark.
+type ApplicationDetails struct {
+	ID           string
+	Template     string
+	Type         string // saml, oidc, or bookmark
+	DisplayLabel string
+	Hidden       bool
+	// SSOURL is the IdP sign-in URL of a SAML app and the target of a bookmark.
+	SSOURL string
+	// IdPEntityID and IdPCertificate (PEM) are set for SAML apps only.
+	IdPEntityID    string
+	IdPCertificate string
+}
+
+// GetApplicationDetails returns ErrNotFound when the application does not exist.
+func (c *Client) GetApplicationDetails(ctx context.Context, id string) (*ApplicationDetails, error) {
+	doc, err := get[samlAppDocument](ctx, c, "/api/applications/"+url.PathEscape(id))
+	if err != nil {
+		return nil, err
+	}
+	a := doc.application()
+	d := &ApplicationDetails{ID: a.ID, Template: a.Template, Type: doc.SSO.Type, DisplayLabel: a.DisplayLabel, Hidden: a.Hidden, SSOURL: a.SSOURL}
+	if d.Type == "saml" {
+		d.IdPEntityID = configString(a.Config[SAMLIdPEntityID])
+		d.IdPCertificate = a.Certificate()
+	}
+	return d, nil
+}
+
+// configString decodes a string config value; JumpCloud stores some unset ones as null.
+func configString(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
+}
