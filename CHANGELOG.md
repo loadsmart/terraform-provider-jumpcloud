@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.4.0...v0.5.0) (2026-10-16)
+
+
+### Features
+
+* add saml applications ([#15](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/15)) ([0b877ff](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/0b877ff8bf0220e0d210f85dd761a2a6206aa1a7))
+
 ## [0.4.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.3.1...v0.4.0) (2026-10-09)
 
 
