@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hashicorp/terraform-plugin-framework-jsontypes/jsontypes"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/datasource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/types"
@@ -38,6 +39,12 @@ func (d *userGroupDataSource) Schema(_ context.Context, _ datasource.SchemaReque
 				Computed:            true,
 			},
 			"query": schema.StringAttribute{MarkdownDescription: "Membership rule as JSON for dynamic groups, empty for static groups.", Computed: true},
+			"custom_attributes": schema.MapAttribute{
+				MarkdownDescription: "Attributes the group's members inherit, each as JSON. Unlike the resource's `custom_attributes`, " +
+					"every attribute on the group is reported, including ones set in the admin console. Decode a value with `jsondecode`.",
+				Computed:    true,
+				ElementType: jsontypes.NormalizedType{},
+			},
 		},
 	}
 }
@@ -69,7 +76,7 @@ func (d *userGroupDataSource) Read(ctx context.Context, req datasource.ReadReque
 		resp.Diagnostics.AddError("Error reading JumpCloud user group", err.Error())
 		return
 	}
-	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupModel(*g))...)
+	resp.Diagnostics.Append(resp.State.Set(ctx, newUserGroupModel(*g, &resp.Diagnostics))...)
 }
 
 type userGroupsDataSource struct{ client *client.Client }
@@ -85,7 +92,7 @@ func (d *userGroupsDataSource) Metadata(_ context.Context, req datasource.Metada
 func (d *userGroupsDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Lists every JumpCloud user group in the organization. Filter the result in Terraform, for example with `regexall`. " +
-			"JumpCloud's list leaves out membership details; use `jumpcloud_user_group` for a group's `membership_method` and `query`.",
+			"JumpCloud's list leaves out membership details and attributes; use `jumpcloud_user_group` for a group's `membership_method`, `query`, and `custom_attributes`.",
 		Attributes: map[string]schema.Attribute{
 			"groups": schema.ListNestedAttribute{
 				MarkdownDescription: "User groups.",

@@ -3,12 +3,12 @@
 page_title: "jumpcloud_user_group Resource - jumpcloud"
 subcategory: ""
 description: |-
-  Manages a JumpCloud user group. A group is static, with members added directly (see jumpcloud_user_group_members and jumpcloud_user_group_memberships), or dynamic, with members decided by membership_rule. Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console.
+  Manages a JumpCloud user group. A group is static, with members added directly (see jumpcloud_user_group_members and jumpcloud_user_group_memberships), or dynamic, with members decided by membership_rule. Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console. Importing a group does not read its custom_attributes, because the provider only manages the ones a configuration has set, so the first plan after an import writes the configured attributes again.
 ---
 
 # jumpcloud_user_group (Resource)
 
-Manages a JumpCloud user group. A group is static, with members added directly (see `jumpcloud_user_group_members` and `jumpcloud_user_group_memberships`), or dynamic, with members decided by `membership_rule`. Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console.
+Manages a JumpCloud user group. A group is static, with members added directly (see `jumpcloud_user_group_members` and `jumpcloud_user_group_memberships`), or dynamic, with members decided by `membership_rule`. Group attributes left out of the configuration keep the values set elsewhere, such as in the admin console. Importing a group does not read its `custom_attributes`, because the provider only manages the ones a configuration has set, so the first plan after an import writes the configured attributes again.
 
 ## Example Usage
 
@@ -18,6 +18,15 @@ Manages a JumpCloud user group. A group is static, with members added directly (
 resource "jumpcloud_user_group" "platform" {
   name        = "platform-squad"
   description = "Platform squad members"
+
+  # Members inherit these attributes, which a SAML connector can map into an
+  # assertion. Every value is JSON, so write it with jsonencode.
+  custom_attributes = {
+    department = jsonencode("Example")
+    seats      = jsonencode(25)
+    beta       = jsonencode(true)
+    otherInfo  = jsonencode({ location = "Springfield", costCenter = "CC-1024" })
+  }
 }
 
 # A dynamic group: JumpCloud keeps its members in line with the rule.
@@ -55,10 +64,11 @@ data "jumpcloud_users" "cto" {
 
 ### Optional
 
+- `custom_attributes` (Map of String) Attributes the group's members inherit, each a JSON value built with `jsonencode`, for example `{ department = jsonencode("Example"), seats = jsonencode(42), office = jsonencode({ city = "Springfield" }) }`. A JSON string, number, boolean, or object is accepted; a number holds at most 9 digits, so longer ones go in a string. Only the attributes this configuration has set are managed: ones added elsewhere, such as in the admin console, are left alone and stay out of state. Removing an attribute from the map removes it from the group. A user's own attributes win over the group's, and between groups the most recently created attribute wins. Members of a dynamic group do not inherit these; see the `membership_rule` note.
 - `description` (String) Group description.
 - `email` (String) Group email address. Kept as is when not set; `""` clears it.
 - `ldap_groups` (List of String) LDAP group names. JumpCloud sets it to the group name on create and keeps it on rename. Kept as is when not set.
-- `membership_rule` (Attributes) Makes the group dynamic: JumpCloud adds and removes members by this rule. Removing it makes the group static and keeps its current members as direct members. Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed. (see [below for nested schema](#nestedatt--membership_rule))
+- `membership_rule` (Attributes) Makes the group dynamic: JumpCloud adds and removes members by this rule. Removing it makes the group static and keeps its current members as direct members. Every exemption on the group is managed through `include_user_ids` and `exclude_user_ids`; exemptions added elsewhere are removed. JumpCloud stores `custom_attributes` on a dynamic group but its members do not inherit them, so set those attributes on the users instead. (see [below for nested schema](#nestedatt--membership_rule))
 - `posix_groups` (Attributes List) POSIX groups. JumpCloud does not allow changing or removing them once set, so a plan that does fails. To get different POSIX groups, run `terraform taint` on the group so the next apply replaces it. Kept as is when not set. (see [below for nested schema](#nestedatt--posix_groups))
 - `radius_reply` (Attributes List) RADIUS reply attributes sent for members. Kept as is when not set; `[]` removes them. (see [below for nested schema](#nestedatt--radius_reply))
 - `samba_enabled` (Boolean) Whether Samba authentication is enabled for the group in JumpCloud LDAP. Kept as is when not set.

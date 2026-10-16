@@ -717,6 +717,66 @@ func TestUpdateUserGroupRuleAndAttributes(t *testing.T) {
 	}
 }
 
+func TestUserGroupCustomAttributes(t *testing.T) {
+	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"id": "g1", "name": "test",
+			"attributes": map[string]any{
+				"sudo":         map[string]bool{"enabled": true},
+				"ldapGroups":   []map[string]string{{"name": "test"}},
+				"posixGroups":  []map[string]any{{"id": 5000, "name": "test"}},
+				"radius":       map[string]any{"reply": []map[string]string{{"name": "a", "value": "b"}}},
+				"sambaEnabled": true,
+				"department":   "Test",
+				"seats":        42,
+				"beta":         true,
+				"otherInfo":    map[string]any{"location": "Springfield"},
+			},
+		})
+	})
+
+	g, err := c.GetUserGroup(context.Background(), "g1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The managed attributes keep their typed fields.
+	if g.Attributes.Sudo == nil || !g.Attributes.Sudo.Enabled || !g.Attributes.SambaEnabled {
+		t.Errorf("managed attributes = %+v", g.Attributes)
+	}
+	if len(g.Attributes.LDAPGroups) != 1 || len(g.Attributes.POSIXGroups) != 1 || g.Attributes.Radius == nil {
+		t.Errorf("managed attributes = %+v", g.Attributes)
+	}
+	// Everything else is custom, with its JSON type kept.
+	want := map[string]string{
+		"department": `"Test"`,
+		"seats":      `42`,
+		"beta":       `true`,
+		"otherInfo":  `{"location":"Springfield"}`,
+	}
+	got := map[string]string{}
+	for name, raw := range g.Attributes.Custom {
+		got[name] = string(raw)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("custom attributes = %v\nwant %v", got, want)
+	}
+}
+
+func TestListUserGroupsWithNullAttributes(t *testing.T) {
+	// The list endpoint reports attributes as null for every group.
+	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, []map[string]any{{"id": "g1", "name": "test", "attributes": nil}})
+	})
+
+	groups, err := c.ListUserGroups(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(groups) != 1 || groups[0].Attributes.Custom != nil {
+		t.Fatalf("groups = %+v", groups)
+	}
+}
+
 func TestUserGroupMemberIDs(t *testing.T) {
 	const total = 150
 	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {

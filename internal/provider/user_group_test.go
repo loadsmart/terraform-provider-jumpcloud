@@ -83,6 +83,8 @@ func TestUserGroupDataSources(t *testing.T) {
 		g.Email = "devs@example.com"
 		g.MembershipMethod = "DYNAMIC_AUTOMATED"
 		g.MemberQuery = json.RawMessage(`{"filters":[]}`)
+		g.Attributes["department"] = fakeJSON("Test")
+		g.Attributes["seats"] = json.RawMessage(`42`)
 	})
 	f.addGroup("dup", "")
 	f.addGroup("dup", "")
@@ -103,6 +105,10 @@ data "jumpcloud_user_groups" "all" {}`,
 					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "email", "devs@example.com"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "membership_method", "DYNAMIC_AUTOMATED"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "query", `{"filters":[]}`),
+					// The data source reports every custom attribute and leaves the managed ones out.
+					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "custom_attributes.%", "2"),
+					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "custom_attributes.department", `"Test"`),
+					resource.TestCheckResourceAttr("data.jumpcloud_user_group.test", "custom_attributes.seats", `42`),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_groups.all", "groups.#", "3"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_groups.all", "groups.0.name", "devs"),
 					resource.TestCheckResourceAttr("data.jumpcloud_user_groups.all", "groups.0.email", "devs@example.com"),
@@ -350,6 +356,151 @@ resource "jumpcloud_user_group" "test" {
 			},
 			{Config: config("operations", ""), PlanOnly: true},
 		},
+	})
+}
+
+func TestUserGroupCustomAttributes(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_user_group.test"
+	config := func(attrs string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_user_group" "test" {
+  name = "test"
+  %s
+}`, attrs)
+	}
+	var id string
+	attribute := func(key, want string) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			g, _ := f.group(id)
+			if got := string(g.Attributes[key]); got != want {
+				return fmt.Errorf("attributes.%s = %s, want %s", key, got, want)
+			}
+			return nil
+		}
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				// Every JSON type JumpCloud accepts keeps its type on the wire.
+				Config: config(`
+  custom_attributes = {
+    department = jsonencode("Test")
+    seats      = jsonencode(42)
+    beta       = jsonencode(true)
+    other_info = jsonencode({ location = "Springfield", region = "north" })
+  }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr(addr, "custom_attributes.department", `"Test"`),
+					resource.TestCheckResourceAttr(addr, "custom_attributes.seats", `42`),
+					attribute("department", `"Test"`),
+					attribute("seats", `42`),
+					attribute("beta", `true`),
+					attribute("other_info", `{"location":"Springfield","region":"north"}`),
+					// Custom attributes sit beside the managed ones.
+					attribute("ldapGroups", `[{"name":"test"}]`),
+				),
+			},
+			{
+				// JumpCloud does not keep the key order of a JSON attribute. The same JSON
+				// written differently is not a change.
+				PreConfig: func() {
+					f.editGroup(id, func(g *fakeGroup) {
+						g.Attributes["other_info"] = json.RawMessage(`{"region": "north", "location": "Springfield"}`)
+					})
+				},
+				Config: config(`
+  custom_attributes = {
+    department = jsonencode("Test")
+    seats      = jsonencode(42)
+    beta       = jsonencode(true)
+    other_info = jsonencode({ location = "Springfield", region = "north" })
+  }`),
+				PlanOnly: true,
+			},
+			{
+				// An attribute added in the console is left alone and stays out of state.
+				PreConfig: func() {
+					f.editGroup(id, func(g *fakeGroup) {
+						g.Attributes["console_only"] = fakeJSON("set in the console")
+					})
+				},
+				Config: config(`
+  custom_attributes = {
+    department = jsonencode("Test Updated")
+    seats      = jsonencode(42)
+    beta       = jsonencode(true)
+    other_info = jsonencode({ location = "Springfield" })
+  }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					attribute("department", `"Test Updated"`),
+					attribute("console_only", `"set in the console"`),
+					resource.TestCheckNoResourceAttr(addr, "custom_attributes.console_only"),
+				),
+			},
+			{
+				// Dropping an attribute from the map removes it and keeps the rest.
+				Config: config(`
+  custom_attributes = {
+    department = jsonencode("Test Updated")
+    seats      = jsonencode(42)
+  }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					attribute("beta", ``),
+					attribute("other_info", ``),
+					attribute("department", `"Test Updated"`),
+					attribute("seats", `42`),
+					attribute("console_only", `"set in the console"`),
+				),
+			},
+			{
+				Config:      config(`custom_attributes = { sudo = jsonencode(true) }`),
+				ExpectError: regexp.MustCompile(`Reserved attribute name`),
+			},
+			{
+				Config:      config(`custom_attributes = { department = null }`),
+				ExpectError: regexp.MustCompile(`Missing attribute value`),
+			},
+			{
+				// An empty map removes every attribute this resource set.
+				Config: config(`custom_attributes = {}`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					attribute("department", ``),
+					attribute("seats", ``),
+					attribute("console_only", `"set in the console"`),
+					resource.TestCheckResourceAttr(addr, "custom_attributes.%", "0"),
+				),
+			},
+			{ResourceName: addr, ImportState: true, ImportStateVerify: true},
+		},
+	})
+}
+
+func TestUserGroupCustomAttributesOnDynamicGroup(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	f.addUser(client.User{ID: "u1", Department: "Test"})
+
+	// JumpCloud stores the attributes but the members never inherit them, so the
+	// provider warns instead of refusing the configuration.
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{{
+			Config: f.providerConfig() + `
+resource "jumpcloud_user_group" "test" {
+  name              = "test-dynamic"
+  membership_rule = {
+    query = jsonencode({ filters = [{ field = "user.user_department", operation = "equals", value = "Test" }] })
+  }
+  custom_attributes = { department = jsonencode("Test") }
+}`,
+			Check: resource.ComposeAggregateTestCheckFunc(
+				resource.TestCheckResourceAttr("jumpcloud_user_group.test", "membership_method", "DYNAMIC_AUTOMATED"),
+				resource.TestCheckResourceAttr("jumpcloud_user_group.test", "custom_attributes.department", `"Test"`),
+			),
+		}},
 	})
 }
 
