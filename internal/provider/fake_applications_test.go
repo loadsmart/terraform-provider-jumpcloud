@@ -3,6 +3,7 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"slices"
@@ -109,7 +110,9 @@ func (f *fakeJumpCloud) getApp(w http.ResponseWriter, r *http.Request) {
 	app, isSAML := f.saml[r.PathValue("id")]
 	f.mu.Unlock()
 	if isSAML {
-		writeFake(w, http.StatusOK, app.doc)
+		doc := maps.Clone(app.doc)
+		doc["logo"] = f.logo(r.PathValue("id"))
+		writeFake(w, http.StatusOK, doc)
 		return
 	}
 	a, _, ok := f.app(r.PathValue("id"))
@@ -117,7 +120,49 @@ func (f *fakeJumpCloud) getApp(w http.ResponseWriter, r *http.Request) {
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 		return
 	}
-	writeFake(w, http.StatusOK, a)
+	raw, _ := json.Marshal(a)
+	var doc map[string]any
+	_ = json.Unmarshal(raw, &doc)
+	doc["logo"] = f.logo(a.ID)
+	writeFake(w, http.StatusOK, doc)
+}
+
+// logo is the app's logo field: the upload's URL, or the template icon.
+func (f *fakeJumpCloud) logo(id string) map[string]string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.logos[id]; ok {
+		return map[string]string{"url": fmt.Sprintf("https://assets.jumpcloud.com/images/applications/%s-%d.png", id, f.uploads)}
+	}
+	return map[string]string{"url": "https://s3.amazonaws.com/static.jumpcloud.com/applications/logos/application-icon-saml2.png"}
+}
+
+func (f *fakeJumpCloud) uploadLogo(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	file, _, err := r.FormFile("image")
+	if err != nil {
+		writeFake(w, http.StatusBadRequest, map[string]string{"message": "image is required"})
+		return
+	}
+	image, _ := io.ReadAll(file)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, isApp := f.apps[id]
+	_, isSAML := f.saml[id]
+	if !isApp && !isSAML {
+		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
+		return
+	}
+	f.logos[id] = image
+	f.uploads++
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (f *fakeJumpCloud) deleteLogo(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	delete(f.logos, r.PathValue("id"))
+	f.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (f *fakeJumpCloud) renameApp(w http.ResponseWriter, r *http.Request) {

@@ -78,7 +78,10 @@ func (c *Client) do(ctx context.Context, method, path string, query url.Values, 
 // doWithHeader is do with extra request headers.
 func (c *Client) doWithHeader(ctx context.Context, method, path string, query url.Values, header http.Header, in, out any) error {
 	var body []byte
-	if in != nil {
+	contentType := "application/json"
+	if raw, ok := in.(rawBody); ok {
+		body, contentType = raw.data, raw.contentType
+	} else if in != nil {
 		var err error
 		if body, err = json.Marshal(in); err != nil {
 			return fmt.Errorf("jumpcloud: encoding %s %s request: %w", method, path, err)
@@ -102,7 +105,7 @@ func (c *Client) doWithHeader(ctx context.Context, method, path string, query ur
 			req.Header.Set("x-org-id", c.orgID)
 		}
 		if in != nil {
-			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Content-Type", contentType)
 		}
 		maps.Copy(req.Header, header)
 
@@ -139,6 +142,12 @@ func (c *Client) doWithHeader(ctx context.Context, method, path string, query ur
 			return &APIError{Method: method, Path: path, StatusCode: resp.StatusCode, Message: errorMessage(respBody)}
 		}
 	}
+}
+
+// rawBody is a request body sent as is instead of as JSON, such as a file upload.
+type rawBody struct {
+	contentType string
+	data        []byte
 }
 
 // retryable reports whether a failed request is safe to send again. 429 means the
