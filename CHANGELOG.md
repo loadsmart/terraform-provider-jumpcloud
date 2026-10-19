@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.9.0...v0.10.0) (2026-10-19)
+
+
+### Features
+
+* add application logos ([#27](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/27)) ([1e90f1f](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/1e90f1fbfb9576f013a6b6cef66e2c63b70f158c))
+
 ## [0.9.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.8.0...v0.9.0) (2026-10-16)
 
 
