@@ -96,9 +96,9 @@ func (f *fakeJumpCloud) addRole(name string, custom bool) string {
 	return id
 }
 
-func (f *fakeJumpCloud) serviceAccount(id string) (client.ServiceAccount, bool) {
+func (f *fakeJumpCloud) hasServiceAccount(id string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	sa, ok := f.accounts[id]
-	return sa, ok
+	_, ok := f.accounts[id]
+	return ok
 }

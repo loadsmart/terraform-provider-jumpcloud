@@ -39,7 +39,7 @@ resource "jumpcloud_service_account" "test" {
 	inJumpCloud := func(want bool) resource.TestCheckFunc {
 		return func(s *terraform.State) error {
 			id := s.RootModule().Resources[addr].Primary.ID
-			if _, ok := f.serviceAccount(id); ok != want {
+			if ok := f.hasServiceAccount(id); ok != want {
 				return fmt.Errorf("service account %s exists = %t, want %t", id, ok, want)
 			}
 			return nil
@@ -93,7 +93,7 @@ resource "jumpcloud_service_account" "test" {
 						if id := s.RootModule().Resources[addr].Primary.ID; id == firstID {
 							return fmt.Errorf("ID is still %s after a replacement", id)
 						}
-						if _, ok := f.serviceAccount(firstID); ok {
+						if f.hasServiceAccount(firstID) {
 							return fmt.Errorf("replaced service account %s still exists", firstID)
 						}
 						return nil
