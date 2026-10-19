@@ -22,6 +22,11 @@ resource "jumpcloud_oidc_application" "grafana" {
   redirect_uris  = ["https://grafana.example.com/login/generic_oauth"]
   login_url      = "https://grafana.example.com"
 
+  # Optional token lifetimes in seconds; omitted values keep JumpCloud's settings.
+  access_token_lifetime_seconds  = 3600
+  id_token_lifetime_seconds      = 3600
+  refresh_token_lifetime_seconds = 2592000
+
   # JumpCloud only puts mapped claims in the ID token and userinfo response.
   # given_name and family_name are what the console's Profile scope adds.
   claims = {
@@ -66,9 +71,12 @@ output "grafana_client_secret" {
 ### Optional
 
 - `access_token_format` (String) Access token format: `opaque` (JumpCloud's default) or `jwt`, which applications can validate locally against the JWKS. Kept as is when not set, such as when set in the admin console.
+- `access_token_lifetime_seconds` (Number) Access token lifetime in seconds (600 to 86,400). Supports second-level precision. Kept as is when not set, such as when set in the admin console.
 - `audiences` (Set of String) Additional audiences an application can request for its access tokens, up to 5. Kept as is when not set, such as when set in the admin console; `[]` removes them.
 - `claims` (Map of String) Token claims, mapping each claim name to a JumpCloud user attribute. JumpCloud adds no profile claims on its own, even for the `email` and `profile` scopes, so map the ones the application needs, for example `{ email = "email", name = "fullname", groups = "groups" }`. The admin console's Profile scope adds `{ given_name = "firstname", family_name = "lastname" }`; its Email scope adds `email` here and `email_verified` in `static_claims`. `groups` lists the user groups bound to the application; JumpCloud sends it as a string, not a list, when the user is in exactly one of them.
 - `grant_types` (Set of String) Allowed grant types: `authorization_code` and `refresh_token`. JumpCloud supports no others.
+- `id_token_lifetime_seconds` (Number) ID token lifetime in seconds (600 to 3,600). Kept as is when not set, such as when set in the admin console.
+- `refresh_token_lifetime_seconds` (Number) Refresh token lifetime in seconds (600 to 7,776,000). Requires `refresh_token` in `grant_types` when configured. Kept as is when not set, such as when set in the admin console.
 - `show_in_portal` (Boolean) Whether the application appears in users' JumpCloud portal. Hidden applications still accept sign-ins.
 - `static_claims` (Map of String) Claims with the same value for every user, mapping each claim name to its value, for example `{ email_verified = "true" }`. This is what the Email scope adds in the admin console. JumpCloud sends the values as strings. Kept as is when not set, such as when set in the admin console; `{}` removes them.
 - `subject_field` (String) User attribute JumpCloud puts in the `sub` claim: `userId` (JumpCloud's default, the user's JumpCloud ID), `email`, `username`, or a custom attribute name. JumpCloud accepts any value without checking it, and sign-in fails with `OIDC_SUB_VALUE_EXCEPTION` for every user whose profile lacks the attribute, so a typo blocks everyone. Applications that key users on `sub` see a new user when it changes. Kept as is when not set, such as when set in the admin console.

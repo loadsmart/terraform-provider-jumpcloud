@@ -4,6 +4,11 @@ resource "jumpcloud_oidc_application" "grafana" {
   redirect_uris  = ["https://grafana.example.com/login/generic_oauth"]
   login_url      = "https://grafana.example.com"
 
+  # Optional token lifetimes in seconds; omitted values keep JumpCloud's settings.
+  access_token_lifetime_seconds  = 3600
+  id_token_lifetime_seconds      = 3600
+  refresh_token_lifetime_seconds = 2592000
+
   # JumpCloud only puts mapped claims in the ID token and userinfo response.
   # given_name and family_name are what the console's Profile scope adds.
   claims = {
