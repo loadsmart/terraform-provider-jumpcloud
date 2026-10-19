@@ -826,3 +826,71 @@ func TestACSURLs(t *testing.T) {
 		t.Fatalf("ACSURLs(console) = %v", got)
 	}
 }
+
+func TestServiceAccounts(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		// Shaped like the examples in the API reference.
+		account := map[string]any{"objectId": "sa1", "name": "app", "roleId": "r1", "status": "ACTIVE", "expiresAt": "2027-10-19T00:00:00Z"}
+		secret := map[string]any{"objectId": "ac1", "clientId": "cid", "lifetime": "365 Days", "status": "ACTIVE", "expiresAt": "2027-10-19T00:00:00Z"}
+		switch r.Method {
+		case http.MethodPost:
+			secret["clientSecret"] = "s3cret"
+			account["authConfigList"] = []any{map[string]any{"authType": "CLIENT_SECRET", "clientSecretConfig": secret}}
+			writeJSON(t, w, http.StatusCreated, map[string]any{"serviceAccount": account})
+		case http.MethodGet:
+			account["authConfigList"] = []any{map[string]any{"authType": "CLIENT_SECRET", "clientSecretConfig": secret}}
+			writeJSON(t, w, http.StatusOK, account)
+		default:
+			writeJSON(t, w, http.StatusOK, map[string]any{})
+		}
+	})
+	ctx := context.Background()
+
+	sa, err := c.CreateServiceAccount(ctx, "app", "r1", 365)
+	if err != nil || sa.ID != "sa1" || sa.FirstClientSecret().ClientID != "cid" || sa.FirstClientSecret().Secret != "s3cret" {
+		t.Fatalf("created = %+v, %v", sa, err)
+	}
+	sa, err = c.GetServiceAccount(ctx, "sa1")
+	if err != nil || sa.RoleID != "r1" || sa.FirstClientSecret().Secret != "" || sa.FirstClientSecret().LifetimeDays() != 365 {
+		t.Fatalf("read = %+v, %v", sa, err)
+	}
+	if err := c.DeleteServiceAccount(ctx, "sa1"); err != nil {
+		t.Fatal(err)
+	}
+	assertRequests(t, fake.all(), []recorded{
+		{Method: "POST", Path: "/api/v2/service-accounts", Body: `{"name":"app","roleId":"r1","authConfig":{"authType":"CLIENT_SECRET","clientSecretConfig":{"lifetime":"365 Days"}}}`},
+		{Method: "GET", Path: "/api/v2/service-accounts/sa1"},
+		{Method: "DELETE", Path: "/api/v2/service-accounts/sa1"},
+	})
+}
+
+func TestCreateServiceAccountDeletesAccountWithoutSecret(t *testing.T) {
+	c, fake := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			writeJSON(t, w, http.StatusCreated, map[string]any{"serviceAccount": map[string]any{"objectId": "sa1"}})
+			return
+		}
+		writeJSON(t, w, http.StatusOK, map[string]any{})
+	})
+	_, err := c.CreateServiceAccount(context.Background(), "app", "r1", 30)
+	if err == nil || !strings.Contains(err.Error(), "returned no client secret") {
+		t.Fatalf("error = %v, want the missing secret", err)
+	}
+	reqs := fake.all()
+	if len(reqs) != 2 || reqs[1].Method != http.MethodDelete || reqs[1].Path != "/api/v2/service-accounts/sa1" {
+		t.Fatalf("requests = %+v, want create, delete", reqs)
+	}
+}
+
+func TestListRoles(t *testing.T) {
+	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, map[string]any{
+			"results":    []map[string]any{{"id": "r1", "name": "Read Only", "isCustom": false}, {"id": "r2", "name": "Reader", "isCustom": true}},
+			"totalCount": 2,
+		})
+	})
+	roles, err := c.ListRoles(context.Background())
+	if err != nil || !reflect.DeepEqual(roles, []Role{{ID: "r1", Name: "Read Only"}, {ID: "r2", Name: "Reader", IsCustom: true}}) {
+		t.Fatalf("roles = %+v, %v", roles, err)
+	}
+}
