@@ -35,6 +35,8 @@ type fakeJumpCloud struct {
 	saml    map[string]fakeSAMLApp
 	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
 	renames int                 // v1 PUT /api/applications/{id} calls
+	logos   map[string][]byte   // app ID -> uploaded logo
+	uploads int                 // POST /api/v2/applications/{id}/logo calls
 }
 
 // fakeGroup is a user group as JumpCloud returns it.
@@ -63,7 +65,7 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	f := &fakeJumpCloud{
 		groups: map[string]fakeGroup{}, members: map[string][]string{},
 		apps: map[string]client.Application{}, sso: map[string]fakeSSO{}, assocs: map[string][]string{},
-		saml: map[string]fakeSAMLApp{},
+		saml: map[string]fakeSAMLApp{}, logos: map[string][]byte{},
 	}
 
 	mux := http.NewServeMux()
@@ -88,6 +90,8 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	mux.HandleFunc("PUT /api/v2/applications/{id}/sso", f.updateSSO)
 	mux.HandleFunc("GET /api/v2/applications/{id}/associations", f.listAssocs)
 	mux.HandleFunc("POST /api/v2/applications/{id}/associations", f.changeAssoc)
+	mux.HandleFunc("POST /api/v2/applications/{id}/logo", f.uploadLogo)
+	mux.HandleFunc("DELETE /api/v2/applications/{id}/logo", f.deleteLogo)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

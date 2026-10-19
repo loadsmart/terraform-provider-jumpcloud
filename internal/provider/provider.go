@@ -136,6 +136,7 @@ func (p *jumpcloudProvider) Resources(_ context.Context) []func() resource.Resou
 		NewOIDCApplicationResource,
 		NewSAMLApplicationResource,
 		NewApplicationAssociationResource,
+		NewApplicationLogoResource,
 	}
 }
 
