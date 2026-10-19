@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.11.0...v0.12.0) (2026-10-19)
+
+
+### Features
+
+* add multi-value saml attributes ([#31](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/31)) ([69088bb](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/69088bbf5cb8f7eff45ea3ecea79e630a01e93e8))
+
 ## [0.11.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.10.0...v0.11.0) (2026-10-19)
 
 
