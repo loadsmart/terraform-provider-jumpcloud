@@ -170,7 +170,7 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 			"user_attributes":     optionalMap("Attributes taken from the user, from attribute name to JumpCloud user field such as `firstname` or `email`."),
 			"multi_value_attributes": schema.MapAttribute{
 				MarkdownDescription: "Attributes sent with several values, from attribute name to the JumpCloud user fields whose values it carries, " +
-					"for example `{ \"84codes.roles\" = [\"cloudamqp_member\", \"cloudamqp_squad_platform\"] }`. " +
+					"for example `{ \"roles\" = [\"role_member\", \"team_platform\"] }`. " +
 					"A field the user lacks, including a group-inherited custom attribute from a group the user is not in, is left out of the assertion. " +
 					"Stored with `user_attributes` in JumpCloud, so a name cannot be in both; when only one of the two is set on create, the other starts empty. " +
 					"After an import, a name with a single value shows up in `user_attributes`. Kept as is when not set; `{}` removes them.",
