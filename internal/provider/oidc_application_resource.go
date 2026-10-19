@@ -3,8 +3,10 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"slices"
+	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
@@ -12,6 +14,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
@@ -25,8 +28,9 @@ import (
 )
 
 var (
-	_ resource.ResourceWithConfigure   = &oidcApplicationResource{}
-	_ resource.ResourceWithImportState = &oidcApplicationResource{}
+	_ resource.ResourceWithConfigure      = &oidcApplicationResource{}
+	_ resource.ResourceWithImportState    = &oidcApplicationResource{}
+	_ resource.ResourceWithValidateConfig = &oidcApplicationResource{}
 )
 
 func NewOIDCApplicationResource() resource.Resource { return &oidcApplicationResource{} }
@@ -46,6 +50,9 @@ type oidcApplicationModel struct {
 	AccessTokenFormat       types.String `tfsdk:"access_token_format"`
 	Audiences               types.Set    `tfsdk:"audiences"`
 	SubjectField            types.String `tfsdk:"subject_field"`
+	AccessTokenLifetime     types.Int64  `tfsdk:"access_token_lifetime_seconds"`
+	IDTokenLifetime         types.Int64  `tfsdk:"id_token_lifetime_seconds"`
+	RefreshTokenLifetime    types.Int64  `tfsdk:"refresh_token_lifetime_seconds"`
 	ClientID                types.String `tfsdk:"client_id"`
 	ClientSecret            types.String `tfsdk:"client_secret"`
 }
@@ -156,6 +163,21 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 				Computed:      true,
 				PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
+			"access_token_lifetime_seconds": schema.Int64Attribute{
+				MarkdownDescription: "Access token lifetime in seconds (600 to 86,400). Supports second-level precision. Kept as is when not set, such as when set in the admin console.",
+				Optional:            true, Computed: true,
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+			},
+			"id_token_lifetime_seconds": schema.Int64Attribute{
+				MarkdownDescription: "ID token lifetime in seconds (600 to 3,600). Kept as is when not set, such as when set in the admin console.",
+				Optional:            true, Computed: true,
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+			},
+			"refresh_token_lifetime_seconds": schema.Int64Attribute{
+				MarkdownDescription: "Refresh token lifetime in seconds (600 to 7,776,000). Requires `refresh_token` in `grant_types` when configured. Kept as is when not set, such as when set in the admin console.",
+				Optional:            true, Computed: true,
+				PlanModifiers: []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
+			},
 			"client_id": schema.StringAttribute{
 				MarkdownDescription: "OAuth client ID.",
 				Computed:            true,
@@ -173,6 +195,34 @@ func (r *oidcApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 
 func (r *oidcApplicationResource) Configure(_ context.Context, req resource.ConfigureRequest, resp *resource.ConfigureResponse) {
 	r.client = providerClient(req.ProviderData, &resp.Diagnostics)
+}
+
+func (r *oidcApplicationResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
+	var config oidcApplicationModel
+	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	for _, lifetime := range []struct {
+		name  string
+		value types.Int64
+		max   int64
+	}{
+		{"access_token_lifetime_seconds", config.AccessTokenLifetime, 86400},
+		{"id_token_lifetime_seconds", config.IDTokenLifetime, 3600},
+		{"refresh_token_lifetime_seconds", config.RefreshTokenLifetime, 7776000},
+	} {
+		if !lifetime.value.IsNull() && !lifetime.value.IsUnknown() && (lifetime.value.ValueInt64() < 600 || lifetime.value.ValueInt64() > lifetime.max) {
+			resp.Diagnostics.AddAttributeError(path.Root(lifetime.name), "Invalid token lifetime", fmt.Sprintf("Must be between 600 and %d seconds.", lifetime.max))
+		}
+	}
+	if !config.RefreshTokenLifetime.IsNull() && !config.RefreshTokenLifetime.IsUnknown() && !config.GrantTypes.IsNull() && !config.GrantTypes.IsUnknown() {
+		var grants []string
+		resp.Diagnostics.Append(config.GrantTypes.ElementsAs(ctx, &grants, false)...)
+		if !slices.Contains(grants, "refresh_token") {
+			resp.Diagnostics.AddAttributeError(path.Root("refresh_token_lifetime_seconds"), "Invalid refresh token lifetime", "The refresh_token grant must be enabled to configure its lifetime.")
+		}
+	}
 }
 
 func (r *oidcApplicationResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -208,6 +258,15 @@ func (r *oidcApplicationResource) Create(ctx context.Context, req resource.Creat
 	if plan.SubjectField.IsUnknown() {
 		plan.SubjectField = types.StringValue(app.OIDC.SubjectField)
 	}
+	if plan.AccessTokenLifetime.IsUnknown() {
+		plan.AccessTokenLifetime = lifetimeSeconds(app.OIDC.AccessTokenLifespan, "access_token_lifetime_seconds", &resp.Diagnostics)
+	}
+	if plan.IDTokenLifetime.IsUnknown() {
+		plan.IDTokenLifetime = lifetimeSeconds(app.OIDC.IDTokenLifespan, "id_token_lifetime_seconds", &resp.Diagnostics)
+	}
+	if plan.RefreshTokenLifetime.IsUnknown() {
+		plan.RefreshTokenLifetime = lifetimeSeconds(app.OIDC.RefreshTokenLifespan, "refresh_token_lifetime_seconds", &resp.Diagnostics)
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -237,6 +296,9 @@ func (r *oidcApplicationResource) Read(ctx context.Context, req resource.ReadReq
 	state.AccessTokenFormat = types.StringValue(app.OIDC.AccessTokenStrategy)
 	state.Audiences = stringSet(ctx, audienceList(app.OIDC.Audience), &resp.Diagnostics)
 	state.SubjectField = types.StringValue(app.OIDC.SubjectField)
+	state.AccessTokenLifetime = lifetimeSeconds(app.OIDC.AccessTokenLifespan, "access_token_lifetime_seconds", &resp.Diagnostics)
+	state.IDTokenLifetime = lifetimeSeconds(app.OIDC.IDTokenLifespan, "id_token_lifetime_seconds", &resp.Diagnostics)
+	state.RefreshTokenLifetime = lifetimeSeconds(app.OIDC.RefreshTokenLifespan, "refresh_token_lifetime_seconds", &resp.Diagnostics)
 	state.LoginURL = types.StringValue(app.OIDC.RelyingPartyURL)
 	state.TokenEndpointAuthMethod = types.StringValue(app.OIDC.TokenEndpointAuthMethod)
 	state.ClientID = types.StringValue(app.OIDC.ClientID)
@@ -319,7 +381,29 @@ func (m oidcApplicationModel) settings(ctx context.Context, config oidcApplicati
 		RelyingPartyURL:         m.LoginURL.ValueString(),
 		DynamicClaims:           dynamic,
 		StaticClaims:            static,
+		AccessTokenLifespan:     configuredLifetime(m.AccessTokenLifetime, config.AccessTokenLifetime),
+		IDTokenLifespan:         configuredLifetime(m.IDTokenLifetime, config.IDTokenLifetime),
+		RefreshTokenLifespan:    configuredLifetime(m.RefreshTokenLifetime, config.RefreshTokenLifetime),
 	}
+}
+
+func configuredLifetime(value, config types.Int64) string {
+	if config.IsNull() || config.IsUnknown() || value.IsUnknown() {
+		return ""
+	}
+	return (time.Duration(value.ValueInt64()) * time.Second).String()
+}
+
+func lifetimeSeconds(value, name string, diags *diag.Diagnostics) types.Int64 {
+	if value == "" {
+		return types.Int64Null()
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration%time.Second != 0 {
+		diags.AddError("Invalid JumpCloud token lifetime", fmt.Sprintf("%s has an invalid duration %q.", name, value))
+		return types.Int64Null()
+	}
+	return types.Int64Value(int64(duration / time.Second))
 }
 
 // claimList turns a claim map into JumpCloud's list, sorted so requests are deterministic.

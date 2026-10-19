@@ -112,9 +112,12 @@ type OIDCSettings struct {
 	// nil leaves them as they are on update; a pointer to an empty slice clears them.
 	StaticClaims *[]OIDCClaim `json:"staticClaims,omitempty"`
 	// Empty or nil leaves the current value on update.
-	AccessTokenStrategy string    `json:"accessTokenStrategy,omitempty"`
-	Audience            *[]string `json:"audience,omitempty"`
-	SubjectField        string    `json:"subjectField,omitempty"`
+	AccessTokenStrategy  string    `json:"accessTokenStrategy,omitempty"`
+	Audience             *[]string `json:"audience,omitempty"`
+	SubjectField         string    `json:"subjectField,omitempty"`
+	AccessTokenLifespan  string    `json:"accessTokenLifespan,omitempty"`
+	IDTokenLifespan      string    `json:"idTokenLifespan,omitempty"`
+	RefreshTokenLifespan string    `json:"refreshTokenLifespan,omitempty"`
 }
 
 // OIDCClaim maps a token claim name to a JumpCloud user attribute, or to a constant
@@ -142,7 +145,11 @@ func (c *Client) CreateOIDCApplication(ctx context.Context, a OIDCApplication) (
 
 	settings := a.OIDC
 	settings.Consent = "trusted"
-	body := map[string]any{"type": oidcTemplate, "hidden": a.Hidden, "oidc": settings}
+	createSettings := settings
+	createSettings.AccessTokenLifespan = ""
+	createSettings.IDTokenLifespan = ""
+	createSettings.RefreshTokenLifespan = ""
+	body := map[string]any{"type": oidcTemplate, "hidden": a.Hidden, "oidc": createSettings}
 	var sso ssoSettings
 	if err := c.do(ctx, http.MethodPost, ssoPath(created.ID), nil, body, &sso); err != nil {
 		err = fmt.Errorf("configuring OIDC for new application %s: %w", created.ID, err)
@@ -151,6 +158,26 @@ func (c *Client) CreateOIDCApplication(ctx context.Context, a OIDCApplication) (
 			return nil, fmt.Errorf("%w (and deleting the half-created application failed: %v)", err, delErr)
 		}
 		return nil, err
+	}
+	if settings.AccessTokenLifespan != "" || settings.IDTokenLifespan != "" || settings.RefreshTokenLifespan != "" {
+		if err := c.UpdateOIDCSettings(ctx, created.ID, a.Hidden, settings); err != nil {
+			err = fmt.Errorf("configuring token lifetimes for new application %s: %w", created.ID, err)
+			if delErr := c.DeleteApplication(context.WithoutCancel(ctx), created.ID); delErr != nil {
+				return nil, fmt.Errorf("%w (and deleting the half-created application failed: %v)", err, delErr)
+			}
+			return nil, err
+		}
+		// The POST response alone may still contain JumpCloud's default lifetimes.
+		updated, err := get[ssoSettings](ctx, c, ssoPath(created.ID))
+		if err != nil {
+			err = fmt.Errorf("reading token lifetimes for new application %s: %w", created.ID, err)
+			if delErr := c.DeleteApplication(context.WithoutCancel(ctx), created.ID); delErr != nil {
+				return nil, fmt.Errorf("%w (and deleting the half-created application failed: %v)", err, delErr)
+			}
+			return nil, err
+		}
+		updated.OIDC.ClientSecret = sso.OIDC.ClientSecret
+		sso = *updated
 	}
 	return &OIDCApplication{ID: created.ID, DisplayLabel: a.DisplayLabel, Hidden: sso.Hidden, OIDC: sso.OIDC}, nil
 }
@@ -183,8 +210,8 @@ func (c *Client) RenameApplication(ctx context.Context, id, displayLabel string,
 }
 
 // UpdateOIDCSettings changes the managed OIDC fields. PUT replaces the whole OIDC object,
-// so the current settings are read first and fields set elsewhere, such as token
-// lifetimes, are sent back unchanged. The client ID and secret stay the same.
+// so the current settings are read first and fields not configured in Terraform
+// are sent back unchanged. The client ID and secret stay the same.
 func (c *Client) UpdateOIDCSettings(ctx context.Context, id string, hidden bool, s OIDCSettings) error {
 	var current struct {
 		OIDC map[string]any `json:"oidc"`

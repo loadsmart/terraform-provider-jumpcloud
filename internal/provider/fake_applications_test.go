@@ -47,6 +47,7 @@ func (f *fakeJumpCloud) addConsoleOIDCApp() string {
 		"audience":                []any{},
 		"subjectField":            "userId",
 		"accessTokenLifespan":     "1h",
+		"idTokenLifespan":         "60m",
 		"refreshTokenLifespan":    "720h",
 	}}
 	return id
@@ -224,6 +225,7 @@ func (f *fakeJumpCloud) createSSO(w http.ResponseWriter, r *http.Request) {
 	}
 	body.OIDC["clientId"] = "client-" + id
 	body.OIDC["accessTokenLifespan"] = "1h"
+	body.OIDC["idTokenLifespan"] = "60m"
 	// JumpCloud stores an empty list when no static claims are sent.
 	if _, ok := body.OIDC["staticClaims"]; !ok {
 		body.OIDC["staticClaims"] = []any{}
@@ -277,10 +279,12 @@ func (f *fakeJumpCloud) updateSSO(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// JumpCloud replaces the whole OIDC object but keeps the client ID, and always
-	// puts the refresh token lifespan back.
+	// JumpCloud replaces the whole OIDC object but keeps the client ID, and sets
+	// a default refresh lifespan when the write omits it.
 	body.OIDC["clientId"] = current.OIDC["clientId"]
-	body.OIDC["refreshTokenLifespan"] = "720h"
+	if _, ok := body.OIDC["refreshTokenLifespan"]; !ok {
+		body.OIDC["refreshTokenLifespan"] = "720h"
+	}
 	f.sso[id] = body
 	writeFake(w, http.StatusOK, map[string]any{"type": "oidc", "hidden": body.Hidden, "oidc": body.OIDC})
 }

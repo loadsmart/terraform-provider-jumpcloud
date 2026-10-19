@@ -233,29 +233,34 @@ resource "jumpcloud_oidc_application" "test" {
 func TestOIDCApplicationUpdateWithoutRefreshTokenGrant(t *testing.T) {
 	f := newFakeJumpCloud(t)
 	const addr = "jumpcloud_oidc_application.test"
-	config := func(label, loginURL string) string {
+	config := func(label, loginURL, lifetime string) string {
 		return f.providerConfig() + fmt.Sprintf(`
 resource "jumpcloud_oidc_application" "test" {
   display_label = %q
   redirect_uris = ["https://example.com"]
   login_url     = %q
   grant_types   = ["authorization_code"]
-}`, label, loginURL)
+  %s
+}`, label, loginURL, lifetime)
 	}
 
 	resource.UnitTest(t, resource.TestCase{
 		ProtoV6ProviderFactories: testProviderFactories,
 		Steps: []resource.TestStep{
-			{Config: config("terraform-test", "https://example.com")},
+			{Config: config("terraform-test", "https://example.com", "")},
 			{
 				// Label only: the SSO settings must be left alone entirely.
-				Config: config("Terraform Test", "https://example.com"),
+				Config: config("Terraform Test", "https://example.com", ""),
 				Check:  resource.TestCheckResourceAttr(addr, "display_label", "Terraform Test"),
 			},
 			{
 				// Settings change: the lifespan JumpCloud set must not be sent back.
-				Config: config("Terraform Test", "https://app.example.com"),
+				Config: config("Terraform Test", "https://app.example.com", ""),
 				Check:  resource.TestCheckResourceAttr(addr, "login_url", "https://app.example.com"),
+			},
+			{
+				Config: config("Terraform Test", "https://app.example.com", "access_token_lifetime_seconds = 3661"),
+				Check:  resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "3661"),
 			},
 		},
 	})
@@ -581,4 +586,101 @@ resource "jumpcloud_oidc_application" "test" {
 			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
 		},
 	})
+}
+
+func TestOIDCApplicationTokenLifetimes(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_oidc_application.test"
+	config := func(login, extra string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_oidc_application" "test" {
+  display_label = "app"
+  redirect_uris = ["https://app.example.com/callback"]
+  login_url     = %q
+  %s
+}`, login, extra)
+	}
+	var id string
+	stored := func(access, identity, refresh string) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			_, sso, _ := f.app(id)
+			for key, want := range map[string]string{
+				"accessTokenLifespan":  access,
+				"idTokenLifespan":      identity,
+				"refreshTokenLifespan": refresh,
+			} {
+				if sso.OIDC[key] != want {
+					return fmt.Errorf("JumpCloud %s = %v, want %s", key, sso.OIDC[key], want)
+				}
+			}
+			return nil
+		}
+	}
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config("https://app.example.com", `
+  access_token_lifetime_seconds  = 3661
+  id_token_lifetime_seconds      = 3540
+  refresh_token_lifetime_seconds = 2592061`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "3661"),
+					resource.TestCheckResourceAttr(addr, "id_token_lifetime_seconds", "3540"),
+					resource.TestCheckResourceAttr(addr, "refresh_token_lifetime_seconds", "2592061"),
+					stored("1h1m1s", "59m0s", "720h1m1s"),
+				),
+			},
+			{
+				Config: config("https://app.example.com/login", ""),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "3661"),
+					stored("1h1m1s", "59m0s", "720h1m1s"),
+				),
+			},
+			{
+				PreConfig: func() { f.setOIDC(id, "accessTokenLifespan", "45m") },
+				Config:    config("https://app.example.com/login", ""),
+				Check:     resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "2700"),
+			},
+			{
+				Config: config("https://app.example.com/login", `
+  access_token_lifetime_seconds  = 3600
+  id_token_lifetime_seconds      = 3600
+  refresh_token_lifetime_seconds = 2592000`),
+				Check: stored("1h0m0s", "1h0m0s", "720h0m0s"),
+			},
+			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
+		},
+	})
+}
+
+func TestOIDCApplicationInvalidTokenLifetimes(t *testing.T) {
+	for _, tc := range []struct {
+		name, config, errorText string
+	}{
+		{"access too short", "access_token_lifetime_seconds = 599", "Invalid token lifetime"},
+		{"access too long", "access_token_lifetime_seconds = 86401", "Invalid token lifetime"},
+		{"id too long", "id_token_lifetime_seconds = 3601", "Invalid token lifetime"},
+		{"refresh too long", "refresh_token_lifetime_seconds = 7776001", "Invalid token lifetime"},
+		{"refresh grant missing", "grant_types = [\"authorization_code\"]\nrefresh_token_lifetime_seconds = 600", "Invalid refresh token lifetime"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFakeJumpCloud(t)
+			resource.UnitTest(t, resource.TestCase{
+				ProtoV6ProviderFactories: testProviderFactories,
+				Steps: []resource.TestStep{{
+					Config: f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_oidc_application" "test" {
+  display_label = "app"
+  redirect_uris = ["https://app.example.com/callback"]
+  login_url     = "https://app.example.com"
+  %s
+}`, tc.config),
+					ExpectError: regexp.MustCompile(tc.errorText),
+				}},
+			})
+		})
+	}
 }
