@@ -1,9 +1,11 @@
 package provider
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -265,6 +267,90 @@ resource "jumpcloud_saml_application" "aws" {
 				PlanOnly:    true,
 				ExpectError: regexp.MustCompile(`template "aws-sso" has no groups_attribute setting`),
 			},
+		},
+	})
+}
+
+func TestSAMLApplicationMultiValueAttributes(t *testing.T) {
+	f := newFakeJumpCloud(t)
+	const addr = "jumpcloud_saml_application.test"
+	config := func(extra string) string {
+		return f.providerConfig() + fmt.Sprintf(`
+resource "jumpcloud_saml_application" "test" {
+  display_label = "CloudAMQP"
+  sp_entity_id  = "https://cloudamqp.example.com/metadata"
+  acs_urls      = ["https://cloudamqp.example.com/acs"]
+  %s
+}`, extra)
+	}
+	var id string
+	rows := func(want ...string) resource.TestCheckFunc {
+		return func(*terraform.State) error {
+			var attrs []struct{ Name, Value string }
+			raw, _ := json.Marshal(f.samlConfig(id)["databaseAttributes"])
+			if err := json.Unmarshal(raw, &attrs); err != nil {
+				return err
+			}
+			got := []string{}
+			for _, a := range attrs {
+				got = append(got, a.Name+"="+a.Value)
+			}
+			if !slices.Equal(got, want) {
+				return fmt.Errorf("JumpCloud rows = %v, want %v", got, want)
+			}
+			return nil
+		}
+	}
+
+	resource.UnitTest(t, resource.TestCase{
+		ProtoV6ProviderFactories: testProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: config(`
+  user_attributes        = { email = "email" }
+  multi_value_attributes = { "84codes.roles" = ["cloudamqp_member", "cloudamqp_admin"] }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttrWith(addr, "id", func(v string) error { id = v; return nil }),
+					resource.TestCheckResourceAttr(addr, "user_attributes.email", "email"),
+					resource.TestCheckResourceAttr(addr, "multi_value_attributes.84codes.roles.#", "2"),
+					rows("email=email", "84codes.roles=cloudamqp_admin", "84codes.roles=cloudamqp_member"),
+				),
+			},
+			{
+				// Only user_attributes configured: the multi-valued rows are kept.
+				Config: config(`user_attributes = { email = "email", first_name = "firstname" }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "multi_value_attributes.84codes.roles.#", "2"),
+					rows("email=email", "first_name=firstname", "84codes.roles=cloudamqp_admin", "84codes.roles=cloudamqp_member"),
+				),
+			},
+			{
+				// Down to one value: it stays in multi_value_attributes.
+				Config: config(`multi_value_attributes = { "84codes.roles" = ["cloudamqp_member"] }`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "multi_value_attributes.84codes.roles.#", "1"),
+					resource.TestCheckResourceAttr(addr, "user_attributes.%", "2"),
+					rows("email=email", "first_name=firstname", "84codes.roles=cloudamqp_member"),
+				),
+			},
+			{
+				Config: config(`multi_value_attributes = {}`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "multi_value_attributes.%", "0"),
+					rows("email=email", "first_name=firstname"),
+				),
+			},
+			{
+				Config: config(`
+  user_attributes        = { "84codes.roles" = "cloudamqp_admin" }
+  multi_value_attributes = { "84codes.roles" = ["cloudamqp_member"] }`),
+				ExpectError: regexp.MustCompile(`is in both user_attributes and multi_value_attributes`),
+			},
+			{
+				Config: config(`multi_value_attributes = { "84codes.roles" = ["cloudamqp_member", "cloudamqp_admin"] }`),
+				Check:  rows("email=email", "first_name=firstname", "84codes.roles=cloudamqp_admin", "84codes.roles=cloudamqp_member"),
+			},
+			{ResourceName: addr, ImportState: true, ImportStateVerify: true},
 		},
 	})
 }

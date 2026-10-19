@@ -68,6 +68,7 @@ output "aws_idp_certificate" {
 - `groups_attribute` (String) Name of the assertion attribute that lists the user's groups bound to the application; `""` stops sending groups. Kept as is when not set.
 - `idp_entity_id` (String) IdP entity ID JumpCloud sends to the service provider. When not set on create, custom apps use the display label in lowercase with dashes, and catalog apps use their template's value. Kept as is when not set.
 - `idp_init_url` (String) URL users are sent to when they open the app from the JumpCloud portal. Kept as is when not set.
+- `multi_value_attributes` (Map of Set of String) Attributes sent with several values, from attribute name to the JumpCloud user fields whose values it carries, for example `{ "84codes.roles" = ["cloudamqp_member", "cloudamqp_squad_platform"] }`. A field the user lacks, including a group-inherited custom attribute from a group the user is not in, is left out of the assertion. Stored with `user_attributes` in JumpCloud, so a name cannot be in both; when only one of the two is set on create, the other starts empty. After an import, a name with a single value shows up in `user_attributes`. Kept as is when not set; `{}` removes them.
 - `name_id` (String) User attribute sent as the SAML subject NameID, such as `email` or `username`. Kept as is when not set.
 - `name_id_format` (String) NameID format, such as `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`. Kept as is when not set.
 - `show_in_portal` (Boolean) Whether the application appears in users' JumpCloud portal.
