@@ -28,6 +28,7 @@ const (
 	SAMLNameIDFormat      = "overrideNameIdFormat"
 	SAMLSignResponse      = "signResponse"
 	SAMLSignAssertion     = "signAssertion"
+	SAMLDeclareRedirect   = "declareRedirectEndpoint"
 	SAMLIncludeGroups     = "includeGroups"
 	SAMLGroupsAttribute   = "groupsAttributeName"
 	SAMLConstantAttrs     = "constantAttributes"

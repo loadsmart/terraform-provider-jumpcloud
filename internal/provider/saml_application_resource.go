@@ -51,6 +51,7 @@ type samlApplicationModel struct {
 	NameIDFormat       types.String `tfsdk:"name_id_format"`
 	SignResponse       types.Bool   `tfsdk:"sign_response"`
 	SignAssertion      types.Bool   `tfsdk:"sign_assertion"`
+	DeclareRedirect    types.Bool   `tfsdk:"declare_redirect_endpoint"`
 	GroupsAttribute    types.String `tfsdk:"groups_attribute"`
 	ConstantAttributes types.Map    `tfsdk:"constant_attributes"`
 	UserAttributes     types.Map    `tfsdk:"user_attributes"`
@@ -81,6 +82,7 @@ var samlBoolSettings = []struct {
 }{
 	{"sign_response", client.SAMLSignResponse, func(m *samlApplicationModel) *types.Bool { return &m.SignResponse }},
 	{"sign_assertion", client.SAMLSignAssertion, func(m *samlApplicationModel) *types.Bool { return &m.SignAssertion }},
+	{"declare_redirect_endpoint", client.SAMLDeclareRedirect, func(m *samlApplicationModel) *types.Bool { return &m.DeclareRedirect }},
 }
 
 var samlAttributeSettings = []struct {
@@ -164,6 +166,8 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 			"name_id_format":      optionalString("NameID format, such as `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`."),
 			"sign_response":       optionalBool("Whether JumpCloud signs the SAML response."),
 			"sign_assertion":      optionalBool("Whether JumpCloud signs the SAML assertion."),
+			"declare_redirect_endpoint": optionalBool("Whether the IdP metadata also declares an HTTP-Redirect sign-on endpoint, " +
+				"which some service providers need for SP-initiated sign-in."),
 			"groups_attribute": optionalString("Name of the assertion attribute that lists the user's groups bound to the application; " +
 				"`\"\"` stops sending groups."),
 			"constant_attributes": optionalMap("Attributes with the same value for every user, by attribute name."),

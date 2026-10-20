@@ -64,6 +64,7 @@ output "aws_idp_certificate" {
 ### Optional
 
 - `constant_attributes` (Map of String) Attributes with the same value for every user, by attribute name. Kept as is when not set; `{}` removes them.
+- `declare_redirect_endpoint` (Boolean) Whether the IdP metadata also declares an HTTP-Redirect sign-on endpoint, which some service providers need for SP-initiated sign-in. Kept as is when not set.
 - `default_relay_state` (String) Default relay state, the URL users land on after an IdP-initiated sign-in. Kept as is when not set.
 - `groups_attribute` (String) Name of the assertion attribute that lists the user's groups bound to the application; `""` stops sending groups. Kept as is when not set.
 - `idp_entity_id` (String) IdP entity ID JumpCloud sends to the service provider. When not set on create, custom apps use the display label in lowercase with dashes, and catalog apps use their template's value. Kept as is when not set.
