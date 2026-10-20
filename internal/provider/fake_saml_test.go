@@ -27,7 +27,7 @@ var fakeSAMLTemplates = map[string]fakeSAMLTemplate{
 	"saml2": {"SAML2.0", "saml", map[string]any{
 		"idpEntityId": "", "idpPrivateKey": "", "idpCertificate": "", "spEntityId": "", "acsUrl": "https://YOUR_ACS_URL/",
 		"subjectField": "email", "overrideNameIdFormat": "urn:oasis:names:tc:SAML:1.0:nameid-format:unspecified",
-		"signResponse": false, "signAssertion": true, "signatureAlgorithm": "RSA-SHA256",
+		"signResponse": false, "signAssertion": true, "signatureAlgorithm": "RSA-SHA256", "declareRedirectEndpoint": false,
 		"includeGroups": false, "groupsAttributeName": "", "constantAttributes": []any{}, "databaseAttributes": []any{},
 		"defaultTargetUrl": "", "idpInitUrl": "",
 	}},

@@ -30,6 +30,7 @@ resource "jumpcloud_saml_application" "test" {
   show_in_portal      = true
   name_id             = "username"
   sign_response       = true
+  declare_redirect_endpoint = true
   groups_attribute    = "groups"
   constant_attributes = { Role = "reader" }
   user_attributes     = { FirstName = "firstname" }`
@@ -58,6 +59,7 @@ resource "jumpcloud_saml_application" "test" {
 					resource.TestCheckResourceAttr(addr, "show_in_portal", "false"),
 					resource.TestCheckResourceAttr(addr, "name_id", "email"),
 					resource.TestCheckResourceAttr(addr, "groups_attribute", ""),
+					resource.TestCheckResourceAttr(addr, "declare_redirect_endpoint", "false"),
 					resource.TestCheckResourceAttr(addr, "acs_urls.#", "1"),
 					resource.TestCheckResourceAttrWith(addr, "idp_certificate", func(v string) error {
 						cert = v
@@ -85,6 +87,7 @@ resource "jumpcloud_saml_application" "test" {
 					resource.TestCheckResourceAttrWith(addr, "idp_certificate", func(v string) error { return expect(v, cert) }),
 					resource.TestCheckResourceAttr(addr, "acs_urls.1", "https://n8n.example.com/acs2"),
 					resource.TestCheckResourceAttr(addr, "constant_attributes.Role", "reader"),
+					resource.TestCheckResourceAttr(addr, "declare_redirect_endpoint", "true"),
 					jumpcloud(func(c map[string]any) error {
 						switch {
 						case !strings.HasPrefix(fmt.Sprint(c["acsUrl"]), `[{"index":"0","isDefault":"true","url":"https://n8n.example.com/acs"}`):
@@ -104,7 +107,7 @@ resource "jumpcloud_saml_application" "test" {
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr(addr, "name_id", "username"),
 					jumpcloud(func(c map[string]any) error {
-						if c["includeGroups"] != true || c["subjectField"] != "username" || c["signResponse"] != true {
+						if c["includeGroups"] != true || c["subjectField"] != "username" || c["signResponse"] != true || c["declareRedirectEndpoint"] != true {
 							return fmt.Errorf("config = %v", c)
 						}
 						return nil
