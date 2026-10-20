@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.12.0...v0.13.0) (2026-10-20)
+
+
+### Features
+
+* add declare redirect endpoint to saml applications ([#34](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/34)) ([cfb1e58](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/cfb1e58e59c2ff76a2b27dc5a33bc78c3b65716d))
+
 ## [0.12.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.11.0...v0.12.0) (2026-10-19)
 
 
