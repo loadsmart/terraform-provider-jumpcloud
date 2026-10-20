@@ -167,7 +167,7 @@ func (r *samlApplicationResource) Schema(_ context.Context, _ resource.SchemaReq
 			"sign_response":       optionalBool("Whether JumpCloud signs the SAML response."),
 			"sign_assertion":      optionalBool("Whether JumpCloud signs the SAML assertion."),
 			"declare_redirect_endpoint": optionalBool("Whether the IdP metadata also declares an HTTP-Redirect sign-on endpoint, " +
-				"which some service providers, such as Pritunl, need for SP-initiated sign-in."),
+				"which some service providers need for SP-initiated sign-in."),
 			"groups_attribute": optionalString("Name of the assertion attribute that lists the user's groups bound to the application; " +
 				"`\"\"` stops sending groups."),
 			"constant_attributes": optionalMap("Attributes with the same value for every user, by attribute name."),
