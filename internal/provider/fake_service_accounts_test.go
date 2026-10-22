@@ -12,8 +12,9 @@ import (
 	"github.com/loadsmart/terraform-provider-jumpcloud/internal/client"
 )
 
-// The service account handlers follow the published API reference. Create answers with
-// the client secret; reads leave it out.
+// The service account handlers mirror what the real API was observed to do. Create answers
+// with the client secret; reads leave it out. Both wrap the account in "serviceAccount",
+// though the API reference shows GET returning it at the top level.
 
 func (f *fakeJumpCloud) createServiceAccount(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -66,7 +67,7 @@ func (f *fakeJumpCloud) getServiceAccount(w http.ResponseWriter, r *http.Request
 		writeFake(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 		return
 	}
-	writeFake(w, http.StatusOK, sa)
+	writeFake(w, http.StatusOK, map[string]any{"serviceAccount": sa})
 }
 
 func (f *fakeJumpCloud) deleteServiceAccount(w http.ResponseWriter, r *http.Request) {

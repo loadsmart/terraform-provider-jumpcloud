@@ -882,6 +882,36 @@ func TestCreateServiceAccountDeletesAccountWithoutSecret(t *testing.T) {
 	}
 }
 
+func TestGetServiceAccountResponseShapes(t *testing.T) {
+	account := map[string]any{"objectId": "sa1", "name": "app", "roleId": "r1", "status": "ACTIVE"}
+	for name, body := range map[string]any{
+		"top level": account,
+		"wrapped":   map[string]any{"serviceAccount": account},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(t, w, http.StatusOK, body)
+			})
+			sa, err := c.GetServiceAccount(context.Background(), "sa1")
+			if err != nil || sa.ID != "sa1" || sa.Name != "app" || sa.RoleID != "r1" || sa.Status != "ACTIVE" {
+				t.Fatalf("account = %+v, %v", sa, err)
+			}
+		})
+	}
+}
+
+// An unexpected shape must fail the read instead of emptying the state, which would
+// make Terraform replace the account.
+func TestGetServiceAccountWithoutIDIsAnError(t *testing.T) {
+	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, http.StatusOK, map[string]any{"account": map[string]any{"objectId": "sa1"}})
+	})
+	_, err := c.GetServiceAccount(context.Background(), "sa1")
+	if err == nil || !strings.Contains(err.Error(), "returned no service account ID") {
+		t.Fatalf("error = %v, want the missing ID", err)
+	}
+}
+
 func TestListRoles(t *testing.T) {
 	c, _ := newTestClient(t, "", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(t, w, http.StatusOK, map[string]any{

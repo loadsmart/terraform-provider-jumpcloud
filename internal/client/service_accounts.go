@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -80,15 +81,13 @@ func (c *Client) CreateServiceAccount(ctx context.Context, name, roleID string, 
 	body.AuthConfig.AuthType = authTypeClientSecret
 	body.AuthConfig.ClientSecretConfig.Lifetime = fmt.Sprintf("%d Days", lifetimeDays)
 
-	var created struct {
-		ServiceAccount ServiceAccount `json:"serviceAccount"`
-	}
-	if err := c.do(ctx, http.MethodPost, serviceAccountsPath, nil, body, &created); err != nil {
+	var raw json.RawMessage
+	if err := c.do(ctx, http.MethodPost, serviceAccountsPath, nil, body, &raw); err != nil {
 		return nil, err
 	}
-	sa := &created.ServiceAccount
-	if sa.ID == "" {
-		return nil, errors.New("jumpcloud: POST " + serviceAccountsPath + " returned no service account ID")
+	sa, err := decodeServiceAccount(raw, "POST "+serviceAccountsPath)
+	if err != nil {
+		return nil, err
 	}
 	// Without the secret the account is unusable, and it cannot be fetched again.
 	if secret := sa.FirstClientSecret(); secret == nil || secret.ClientID == "" || secret.Secret == "" {
@@ -104,7 +103,35 @@ func (c *Client) CreateServiceAccount(ctx context.Context, name, roleID string, 
 
 // GetServiceAccount returns ErrNotFound when the account does not exist.
 func (c *Client) GetServiceAccount(ctx context.Context, id string) (*ServiceAccount, error) {
-	return get[ServiceAccount](ctx, c, serviceAccountPath(id))
+	raw, err := get[json.RawMessage](ctx, c, serviceAccountPath(id))
+	if err != nil {
+		return nil, err
+	}
+	return decodeServiceAccount(*raw, "GET "+serviceAccountPath(id))
+}
+
+// decodeServiceAccount accepts the account wrapped in {"serviceAccount": ...}, as
+// JumpCloud returns it from create and get, or at the top level, as the API reference
+// shows for get. A response without an ID is an error, so an unexpected shape cannot
+// empty the Terraform state.
+func decodeServiceAccount(raw json.RawMessage, op string) (*ServiceAccount, error) {
+	var wrapped struct {
+		ServiceAccount *ServiceAccount `json:"serviceAccount"`
+	}
+	if err := json.Unmarshal(raw, &wrapped); err != nil {
+		return nil, fmt.Errorf("jumpcloud: decoding %s response: %w", op, err)
+	}
+	sa := wrapped.ServiceAccount
+	if sa == nil {
+		sa = new(ServiceAccount)
+		if err := json.Unmarshal(raw, sa); err != nil {
+			return nil, fmt.Errorf("jumpcloud: decoding %s response: %w", op, err)
+		}
+	}
+	if sa.ID == "" {
+		return nil, errors.New("jumpcloud: " + op + " returned no service account ID")
+	}
+	return sa, nil
 }
 
 // DeleteServiceAccount deletes the account and revokes its secrets.
