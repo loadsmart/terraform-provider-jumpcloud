@@ -24,19 +24,21 @@ import (
 type fakeJumpCloud struct {
 	url string
 
-	mu      sync.Mutex
-	nextID  int
-	groups  map[string]fakeGroup
-	members map[string][]string // group ID -> user IDs
-	users   []client.User
-	failAdd string // user ID whose member adds fail with 500
-	apps    map[string]client.Application
-	sso     map[string]fakeSSO
-	saml    map[string]fakeSAMLApp
-	assocs  map[string][]string // "<app ID>/<type>" -> target IDs
-	renames int                 // v1 PUT /api/applications/{id} calls
-	logos   map[string][]byte   // app ID -> uploaded logo
-	uploads int                 // POST /api/v2/applications/{id}/logo calls
+	mu       sync.Mutex
+	nextID   int
+	groups   map[string]fakeGroup
+	members  map[string][]string // group ID -> user IDs
+	users    []client.User
+	failAdd  string // user ID whose member adds fail with 500
+	apps     map[string]client.Application
+	sso      map[string]fakeSSO
+	saml     map[string]fakeSAMLApp
+	assocs   map[string][]string // "<app ID>/<type>" -> target IDs
+	renames  int                 // v1 PUT /api/applications/{id} calls
+	logos    map[string][]byte   // app ID -> uploaded logo
+	uploads  int                 // POST /api/v2/applications/{id}/logo calls
+	accounts map[string]client.ServiceAccount
+	roles    []client.Role
 }
 
 // fakeGroup is a user group as JumpCloud returns it.
@@ -65,7 +67,7 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	f := &fakeJumpCloud{
 		groups: map[string]fakeGroup{}, members: map[string][]string{},
 		apps: map[string]client.Application{}, sso: map[string]fakeSSO{}, assocs: map[string][]string{},
-		saml: map[string]fakeSAMLApp{}, logos: map[string][]byte{},
+		saml: map[string]fakeSAMLApp{}, logos: map[string][]byte{}, accounts: map[string]client.ServiceAccount{},
 	}
 
 	mux := http.NewServeMux()
@@ -92,6 +94,10 @@ func newFakeJumpCloud(t *testing.T) *fakeJumpCloud {
 	mux.HandleFunc("POST /api/v2/applications/{id}/associations", f.changeAssoc)
 	mux.HandleFunc("POST /api/v2/applications/{id}/logo", f.uploadLogo)
 	mux.HandleFunc("DELETE /api/v2/applications/{id}/logo", f.deleteLogo)
+	mux.HandleFunc("POST /api/v2/service-accounts", f.createServiceAccount)
+	mux.HandleFunc("GET /api/v2/service-accounts/{id}", f.getServiceAccount)
+	mux.HandleFunc("DELETE /api/v2/service-accounts/{id}", f.deleteServiceAccount)
+	mux.HandleFunc("GET /api/v2/roles", f.listRoles)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)

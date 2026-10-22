@@ -4,8 +4,8 @@ Terraform provider for managing JumpCloud user groups, group memberships, OIDC a
 
 This provider is in early development. It currently supports:
 
-- Resources: `jumpcloud_user_group`, `jumpcloud_user_group_members`, `jumpcloud_user_group_memberships`, `jumpcloud_oidc_application`, `jumpcloud_saml_application`, `jumpcloud_application_association`, `jumpcloud_application_logo`
-- Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_users`, `jumpcloud_application`
+- Resources: `jumpcloud_user_group`, `jumpcloud_user_group_members`, `jumpcloud_user_group_memberships`, `jumpcloud_oidc_application`, `jumpcloud_saml_application`, `jumpcloud_application_association`, `jumpcloud_application_logo`, `jumpcloud_service_account`
+- Data sources: `jumpcloud_user_group`, `jumpcloud_user_groups`, `jumpcloud_users`, `jumpcloud_application`, `jumpcloud_role`
 
 See [`docs/`](docs/) for arguments and examples.
 
