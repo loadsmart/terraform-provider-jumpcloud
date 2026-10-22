@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.13.0...v0.14.0) (2026-10-22)
+
+
+### Features
+
+* manage service accounts (`jumpcloud_service_account` resource) and read roles (`jumpcloud_role` data source) ([#33](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/33)) ([a747c5e](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/a747c5e82b61c35bbb2de5d1ce674377396f0379))
+
 ## [0.13.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.12.0...v0.13.0) (2026-10-20)
 
 
