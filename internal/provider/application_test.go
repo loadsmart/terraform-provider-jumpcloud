@@ -629,14 +629,30 @@ resource "jumpcloud_oidc_application" "test" {
 					resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "3661"),
 					resource.TestCheckResourceAttr(addr, "id_token_lifetime_seconds", "3540"),
 					resource.TestCheckResourceAttr(addr, "refresh_token_lifetime_seconds", "2592061"),
-					stored("1h1m1s", "59m0s", "720h1m1s"),
+					stored("3661s", "59m", "2592061s"),
 				),
 			},
 			{
 				Config: config("https://app.example.com/login", ""),
 				Check: resource.ComposeAggregateTestCheckFunc(
 					resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "3661"),
-					stored("1h1m1s", "59m0s", "720h1m1s"),
+					stored("3661s", "59m", "2592061s"),
+				),
+			},
+			{
+				// Earlier provider versions wrote Go's multi-unit form, which the admin console shows as empty.
+				PreConfig: func() {
+					f.setOIDC(id, "accessTokenLifespan", "1h1m1s")
+					f.setOIDC(id, "idTokenLifespan", "59m0s")
+				},
+				Config: config("https://app.example.com/login", `
+  access_token_lifetime_seconds  = 3661
+  refresh_token_lifetime_seconds = 2592061`),
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr(addr, "access_token_lifetime_seconds", "3661"),
+					// Not configured, so JumpCloud's value is kept as is and is unknown to Terraform.
+					resource.TestCheckNoResourceAttr(addr, "id_token_lifetime_seconds"),
+					stored("3661s", "59m0s", "2592061s"),
 				),
 			},
 			{
@@ -649,7 +665,12 @@ resource "jumpcloud_oidc_application" "test" {
   access_token_lifetime_seconds  = 3600
   id_token_lifetime_seconds      = 3600
   refresh_token_lifetime_seconds = 2592000`),
-				Check: stored("1h0m0s", "1h0m0s", "720h0m0s"),
+				Check: stored("1h", "1h", "720h"),
+			},
+			{
+				Config: config("https://app.example.com/login", `
+  refresh_token_lifetime_seconds = 43200`),
+				Check: stored("1h", "1h", "12h"),
 			},
 			{ResourceName: addr, ImportState: true, ImportStateVerify: true, ImportStateVerifyIgnore: []string{"client_secret"}},
 		},
