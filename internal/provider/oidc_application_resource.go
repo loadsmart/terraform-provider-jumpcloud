@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework/attr"
@@ -333,6 +334,24 @@ func (r *oidcApplicationResource) Update(ctx context.Context, req resource.Updat
 		resp.Diagnostics.AddError("Error updating JumpCloud OIDC application", err.Error())
 		return
 	}
+	// A lifetime read as null, such as one in the multi-unit form, plans as unknown when
+	// not configured, so take JumpCloud's value.
+	if plan.AccessTokenLifetime.IsUnknown() || plan.IDTokenLifetime.IsUnknown() || plan.RefreshTokenLifetime.IsUnknown() {
+		app, err := r.client.GetOIDCApplication(ctx, id)
+		if err != nil {
+			resp.Diagnostics.AddError("Error reading JumpCloud OIDC application", err.Error())
+			return
+		}
+		if plan.AccessTokenLifetime.IsUnknown() {
+			plan.AccessTokenLifetime = lifetimeSeconds(app.OIDC.AccessTokenLifespan, "access_token_lifetime_seconds", &resp.Diagnostics)
+		}
+		if plan.IDTokenLifetime.IsUnknown() {
+			plan.IDTokenLifetime = lifetimeSeconds(app.OIDC.IDTokenLifespan, "id_token_lifetime_seconds", &resp.Diagnostics)
+		}
+		if plan.RefreshTokenLifetime.IsUnknown() {
+			plan.RefreshTokenLifetime = lifetimeSeconds(app.OIDC.RefreshTokenLifespan, "refresh_token_lifetime_seconds", &resp.Diagnostics)
+		}
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, plan)...)
 }
 
@@ -391,9 +410,26 @@ func configuredLifetime(value, config types.Int64) string {
 	if config.IsNull() || config.IsUnknown() || value.IsUnknown() {
 		return ""
 	}
-	return (time.Duration(value.ValueInt64()) * time.Second).String()
+	return lifespan(value.ValueInt64())
 }
 
+// lifespan formats seconds in the single-unit form the admin console writes and reads,
+// such as "12h", "45m" or "3661s". The console shows a lifetime in Go's multi-unit form,
+// such as "12h0m0s", as empty.
+func lifespan(seconds int64) string {
+	switch {
+	case seconds%3600 == 0:
+		return fmt.Sprintf("%dh", seconds/3600)
+	case seconds%60 == 0:
+		return fmt.Sprintf("%dm", seconds/60)
+	default:
+		return fmt.Sprintf("%ds", seconds)
+	}
+}
+
+// lifetimeSeconds parses a JumpCloud lifespan. A lifespan in the multi-unit form earlier
+// provider versions wrote, such as "12h0m0s", reads as null so a configured lifetime is
+// planned again and rewritten in the single-unit form.
 func lifetimeSeconds(value, name string, diags *diag.Diagnostics) types.Int64 {
 	if value == "" {
 		return types.Int64Null()
@@ -401,6 +437,9 @@ func lifetimeSeconds(value, name string, diags *diag.Diagnostics) types.Int64 {
 	duration, err := time.ParseDuration(value)
 	if err != nil || duration%time.Second != 0 {
 		diags.AddError("Invalid JumpCloud token lifetime", fmt.Sprintf("%s has an invalid duration %q.", name, value))
+		return types.Int64Null()
+	}
+	if strings.IndexAny(value, "hms") != len(value)-1 {
 		return types.Int64Null()
 	}
 	return types.Int64Value(int64(duration / time.Second))
