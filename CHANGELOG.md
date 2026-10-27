@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.14.0...v0.14.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* use single-unit oidc token lifespans ([#37](https://github.com/loadsmart/terraform-provider-jumpcloud/issues/37)) ([e8c1471](https://github.com/loadsmart/terraform-provider-jumpcloud/commit/e8c1471264a00e6614c1063c5747685b9147740e))
+
 ## [0.14.0](https://github.com/loadsmart/terraform-provider-jumpcloud/compare/v0.13.0...v0.14.0) (2026-10-22)
 
 
